@@ -187,8 +187,45 @@ fn start_claude(home: &Path) -> Result<deck::app::App, String> {
             other => other?,
         }
     };
-    let _ = std::fs::write(dir.join("session"), app.session_id());
+    keep(home, app.session_id());
     Ok(app)
+}
+
+/// Keep the session id in ~/.gluon/session, and tag a new one #gluon.
+fn keep(home: &Path, id: &str) {
+    let dir = home.join(".gluon");
+    let kept = std::fs::read_to_string(dir.join("session")).unwrap_or_default();
+    if kept.trim() != id {
+        let _ = std::fs::write(dir.join("session"), id);
+        bookmark(home, &dir, id);
+    }
+}
+
+/// Tag the Claude tab's session #gluon in cc-sessions' bookmarks, where
+/// fleet and `cc gluon` find it, and take the tag off the session before.
+/// Without cc-sessions there is no file, and nothing to do.
+fn bookmark(home: &Path, dir: &Path, id: &str) {
+    let file = home.join(".cc-sessions/bookmarks.json");
+    let Some(mut b) = std::fs::read_to_string(&file)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+    else {
+        return;
+    };
+    let Some(sessions) = b["sessions"].as_object_mut() else { return };
+    sessions.retain(|_, e| !e["tags"].as_array().is_some_and(|t| t.len() == 1 && t[0] == "gluon"));
+    for e in sessions.values_mut() {
+        if let Some(t) = e["tags"].as_array_mut() {
+            t.retain(|t| t != "gluon");
+        }
+    }
+    sessions.insert(id.into(), serde_json::json!({ "path": dir, "tags": ["gluon"] }));
+    let tmp = file.with_extension("json.tmp");
+    if let Ok(text) = serde_json::to_string_pretty(&b) {
+        if std::fs::write(&tmp, text).is_ok() {
+            let _ = std::fs::rename(&tmp, &file);
+        }
+    }
 }
 
 /// The Claude tab, started the first time it is shown: an idle Claude
@@ -385,7 +422,7 @@ fn main() {
     }
 
     if let Claude::On(c) = claude {
-        let _ = std::fs::write(home.join(".gluon").join("session"), c.session_id());
+        keep(&home, c.session_id());
         deck::app::finish(c);
     }
     tock::app::finish(cal);

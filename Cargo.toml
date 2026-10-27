@@ -17,6 +17,9 @@ tock = { path = "../tock" }
 # The Claude tab is deck.
 deck = { path = "../deck" }
 libc = "0.2"
+# To tag the Claude tab's session #gluon in cc-sessions' bookmarks,
+# whose order is its picker's order.
+serde_json = { version = "1", features = ["preserve_order"] }
 
 [profile.release]
 opt-level = 3

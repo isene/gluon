@@ -27,6 +27,9 @@ takes more power than the rest of gluon. The session's id stays in
 `~/.gluon/CLAUDE.md` tells it where your mail, calendar and tasks are.
 In that tab, C-D ends gluon, and C-T shows the tool calls in full.
 
+With [cc-sessions](https://github.com/isene/CC-sessions), gluon bookmarks
+the session as #gluon, so `cc gluon` and fleet find it.
+
 In the Tasks tab, `j`/`k` scroll, `e` or Enter opens the list in your
 editor (`$EDITOR`, or scribe when it is not set), and `q` ends gluon.
 
