@@ -1,0 +1,189 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Run by hand to build the latest release's binaries again.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            artifact: gluon-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: gluon-linux-aarch64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: gluon-macos-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: gluon-macos-aarch64
+
+    steps:
+      - name: Find the release to build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A tag push builds that tag. A run by hand builds the latest release again.
+          if [ "$GITHUB_REF_TYPE" = tag ]; then tag=$GITHUB_REF_NAME
+          else tag=$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName); fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+        with:
+          path: gluon
+          ref: ${{ env.TAG }}
+
+      - name: Checkout crust
+        uses: actions/checkout@v7
+        with:
+          repository: isene/crust
+          path: crust
+
+      - name: Checkout glow
+        uses: actions/checkout@v7
+        with:
+          repository: isene/glow
+          path: glow
+
+      - name: Checkout highlight
+        uses: actions/checkout@v7
+        with:
+          repository: isene/highlight
+          path: highlight
+
+      - name: Checkout mail
+        uses: actions/checkout@v7
+        with:
+          repository: isene/mail
+          path: mail
+
+      - name: Checkout feed
+        uses: actions/checkout@v7
+        with:
+          repository: isene/feed
+          path: feed
+
+      - name: Checkout ferrite
+        uses: actions/checkout@v7
+        with:
+          repository: isene/ferrite
+          path: ferrite
+
+      - name: Checkout kastrup
+        uses: actions/checkout@v7
+        with:
+          repository: isene/kastrup
+          path: kastrup
+
+      - name: Checkout tock
+        uses: actions/checkout@v7
+        with:
+          repository: isene/tock
+          path: tock
+
+      - name: Checkout deck
+        uses: actions/checkout@v7
+        with:
+          repository: isene/deck
+          path: deck
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      # The C code inside (SQLite) needs a C compiler that knows musl.
+      - name: C compiler for the static build
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          echo "CC_x86_64_unknown_linux_musl=musl-gcc" >> $GITHUB_ENV
+
+      - name: Build
+        working-directory: gluon
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        working-directory: gluon
+        run: |
+          cp target/${{ matrix.target }}/release/gluon ../${{ matrix.artifact }}
+          chmod +x ../${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Create Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            Download the binary for your platform:
+            ```bash
+            chmod +x gluon-*
+            ./gluon-linux-x86_64    # or your platform
+            ```
+
+            Optionally copy to your PATH:
+            ```bash
+            sudo cp gluon-linux-x86_64 /usr/local/bin/gluon
+            ```
+
+            ## Platforms
+            - `gluon-linux-x86_64` - Linux (Intel/AMD 64-bit)
+            - `gluon-linux-aarch64` - Linux (ARM 64-bit, Raspberry Pi)
+            - `gluon-macos-x86_64` - macOS (Intel)
+            - `gluon-macos-aarch64` - macOS (Apple Silicon)
+
+      - name: Upload the binaries, one at a time
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The upload endpoint answers 500 when several files go up at once.
+          tag=$GITHUB_REF_NAME
+          [ "$GITHUB_REF_TYPE" = tag ] || tag=$(gh release view --json tagName -q .tagName)
+          for f in artifacts/*/*; do
+            for try in 1 2 3; do
+              gh release upload "$tag" "$f" --clobber && break
+              echo "upload of $f failed; waiting 10 s"
+              sleep 10
+            done
+          done

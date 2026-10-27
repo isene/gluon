@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <radialGradient id="back" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" style="stop-color:#23202b"/>
+      <stop offset="100%" style="stop-color:#0a0910"/>
+    </radialGradient>
+  </defs>
+  <circle cx="128" cy="128" r="124" fill="url(#back)"/>
+
+  <!-- three springs bind mail, calendar and tasks, as gluons bind quarks -->
+  <g fill="none" stroke="#d97757" stroke-width="5" stroke-linecap="round">
+    <path transform="translate(128,74) rotate(119.6)" d="M0,0 q7.25,-10 14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0"/>
+    <path transform="translate(128,74) rotate(60.4)" d="M0,0 q7.25,-10 14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0"/>
+    <path transform="translate(70,176)" d="M0,0 q7.25,-10 14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0 t14.5,0"/>
+  </g>
+
+  <g stroke-width="5" fill="#191311">
+    <circle cx="128" cy="74" r="28" stroke="#f74c00"/>
+    <circle cx="70" cy="176" r="28" stroke="#ffb066"/>
+    <circle cx="186" cy="176" r="28" stroke="#9ccc65"/>
+  </g>
+
+  <!-- mail -->
+  <g fill="none" stroke="#f74c00" stroke-width="4" stroke-linejoin="round">
+    <rect x="113" y="64" width="30" height="21" rx="2"/>
+    <polyline points="113,65 128,77 143,65"/>
+  </g>
+  <!-- calendar -->
+  <g fill="none" stroke="#ffb066" stroke-width="4" stroke-linecap="round">
+    <rect x="56" y="164" width="28" height="25" rx="2"/>
+    <line x1="56" y1="172" x2="84" y2="172"/>
+    <line x1="63" y1="160" x2="63" y2="167"/>
+    <line x1="77" y1="160" x2="77" y2="167"/>
+  </g>
+  <!-- task done -->
+  <polyline points="174,177 183,186 199,166" fill="none" stroke="#9ccc65" stroke-width="6"
+            stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="128" cy="128" r="124" fill="none" stroke="#f74c00" stroke-width="3" stroke-opacity=".9"/>
+  <circle cx="128" cy="128" r="118" fill="none" stroke="#ffb066" stroke-width="1" stroke-opacity=".5"/>
+</svg>
