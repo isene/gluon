@@ -936,6 +936,8 @@ impl Home {
                         self.mtime = None;
                     }
                     "S-LEFT" if !vi && self.previewing => self.preview.pane.pageup(),
+                    "S-DOWN" if !vi && self.previewing => self.preview.pane.linedown(),
+                    "S-UP" if !vi && self.previewing => self.preview.pane.lineup(),
                     // As in kastrup: d moves on to the next message.
                     "R" | "d" if !vi => {
                         let (id, _) = b.picked()?;

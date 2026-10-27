@@ -31,7 +31,8 @@ and k too, in the agenda and the tasks), and the box's keys show in its
 bottom edge:
 - Mail: the picked message shows on the right, in place of the agenda
   and the tasks, and stays unread; Space scrolls it and, at its end, goes
-  on to the next message. Shift+Left scrolls back.
+  on to the next message. Shift+Left scrolls back, and Shift+Down and
+  Shift+Up scroll a line.
   Enter opens it in the Mail tab. A message you browse gets an R mark,
   which R takes off or puts back; A marks them all, and d marks one for
   deletion. Marked messages stay in the box until `<` marks the R ones
