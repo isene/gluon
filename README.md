@@ -15,15 +15,26 @@ parts of one screen, so every key you know from them works the same here.
 | Calendar | tock: calendar with ephemeris | `~/.tock/` |
 | Tasks | your task list, coloured as HyperList | `~/.tasks/todo.hl` |
 
-Home has four parts:
+Home has four parts, three boxes over Claude:
 - top left, the unread mail in kastrup's views 1, 2 and 3, newest first,
   each in its view's colour (other views: put their keys in
   `~/.gluon/views`, as `1 2 4`);
-- top right, what is left of today and the coming 30 days in tock;
-- under it, the top of your task list;
-- the bottom half, one Claude Code session that stays, told where your
-  mail, calendar and tasks are. **Ctrl+Z** gives it the whole screen and
-  back.
+- top right, what is left of today and the coming 30 days in tock, with a
+  line between one day and the next;
+- under it, your task list;
+- the bottom, one Claude Code session that stays, told where your mail,
+  calendar and tasks are. **Ctrl+Z** gives it the whole screen and back.
+
+**Tab** moves the keys from box to box and on to Claude (**Shift+Tab**
+goes back, **Esc** jumps to Claude). In a box, the arrows pick a row (j
+and k too, in the agenda and the tasks), and the box's keys show in its
+bottom edge:
+- Mail: Enter opens the message in the Mail tab. kastrup's own keys work
+  too: r replies, f forwards, and so on, on the picked message.
+- Agenda: Enter opens the event in the Calendar tab.
+- Tasks: Enter opens the task list in your editor at that line.
+
+Esc in the tab a box opened brings you back Home.
 
 **Ctrl+O** moves to the next tab. **Ctrl+A** jumps Home and back; Claude
 gets what the tab you came from had on screen (the message, the week, the
