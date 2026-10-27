@@ -474,10 +474,12 @@ struct Home {
     preview: Frame,
     shown: Option<i64>,
     previewing: bool,
-    /// Messages marked read (R) or for deletion (d) in the mail box; they
+    /// Messages marked read or for deletion (d) in the mail box; they
     /// stay there until <. Then they are purged, and kept out of the box
-    /// until kastrup's writer has caught up.
+    /// until kastrup's writer has caught up. A message is marked read the
+    /// first time it is browsed (`seen`), and R toggles the mark.
     marked_read: HashSet<i64>,
+    seen: HashSet<i64>,
     marked_del: HashSet<i64>,
     purged: HashSet<i64>,
     /// The box with the keys, or CLAUDE.
@@ -498,7 +500,7 @@ impl Home {
         let mut h = Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
-                Frame::new(" Enter opens · R read · d delete · < clears · Space scrolls "),
+                Frame::new(" Enter opens · R read/unread · d delete · < clears · Space scrolls "),
                 Frame::new(" Enter opens it in Calendar · Esc Claude "),
                 Frame::new(" Enter edits at this line · Esc Claude "),
             ],
@@ -506,6 +508,7 @@ impl Home {
             shown: None,
             previewing: false,
             marked_read: HashSet::new(),
+            seen: HashSet::new(),
             marked_del: HashSet::new(),
             purged: HashSet::new(),
             focus: CLAUDE,
@@ -690,6 +693,12 @@ impl Home {
         // While the mail box has the keys, the picked message takes the
         // place of the agenda and the tasks.
         let preview = self.focus == BOX_MAIL;
+        if let (true, Some((id, _))) = (preview, self.boxes[BOX_MAIL].picked()) {
+            if self.seen.insert(id) {
+                self.marked_read.insert(id);
+                self.load_mail(mail);
+            }
+        }
         let swap = preview != self.previewing;
         self.previewing = preview;
         drew |= self.boxes[BOX_MAIL].draw(preview, force);
@@ -851,7 +860,8 @@ fn main() {
         println!("            ~/.gluon/views), the agenda and the tasks, and Claude below them.");
         println!("            Tab moves from box to box; Enter opens the picked item in its tab");
         println!("            (Esc comes back), and kastrup's keys act on a picked message;");
-        println!("            R and d mark it read or for deletion, and < does both");
+        println!("            one you browse is marked read (R undoes it), d marks it for");
+        println!("            deletion, and < does both");
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
         println!("  Calendar  tock, with its own keys and ~/.tock/");
         println!("  Tasks     ~/.tasks/todo.hl as HyperList; e edits it");

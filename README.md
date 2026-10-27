@@ -31,9 +31,10 @@ and k too, in the agenda and the tasks), and the box's keys show in its
 bottom edge:
 - Mail: the picked message shows on the right, in place of the agenda
   and the tasks, and stays unread; Space scrolls it, Shift+Left goes back.
-  Enter opens it in the Mail tab. R marks it read and d marks it for
-  deletion; both stay in the box until `<` marks them read in kastrup and
-  deletes the others. kastrup's other keys work too: r replies, f
+  Enter opens it in the Mail tab. A message you browse gets an R mark,
+  which R takes off or puts back, and d marks one for deletion. Marked
+  messages stay in the box until `<` marks the R ones read in kastrup and
+  deletes the D ones. kastrup's other keys work too: r replies, f
   forwards, and so on, on the picked message.
 - Agenda: Enter opens the event in the Calendar tab.
 - Tasks: Enter opens the task list in your editor at that line.
