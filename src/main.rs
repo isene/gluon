@@ -781,6 +781,10 @@ struct Home {
     seen: HashSet<i64>,
     marked_del: HashSet<i64>,
     purged: HashSet<i64>,
+    /// Lines of todo.hl marked for deletion (d in the tasks box), by line
+    /// number (from 1) with their text, so < deletes only a line that is
+    /// still the same.
+    task_del: std::collections::HashMap<usize, String>,
     /// The box with the keys, or CLAUDE.
     focus: usize,
     /// The keys of the views to show, as "1 2 3", in ~/.gluon/views.
@@ -801,7 +805,7 @@ impl Home {
             boxes: [
                 Frame::new(" Enter opens · R/A read · d delete · < clears · r reply · Space scrolls "),
                 Frame::new(" Enter opens it in Calendar · Esc Claude "),
-                Frame::new(" Enter edits at this line · x done · Esc Claude "),
+                Frame::new(" Enter edits at this line · x done · d delete · < clears · Esc Claude "),
             ],
             preview: Frame::new(""),
             shown: None,
@@ -810,6 +814,7 @@ impl Home {
             seen: HashSet::new(),
             marked_del: HashSet::new(),
             purged: HashSet::new(),
+            task_del: Default::default(),
             focus: CLAUDE,
             views: home.join(".gluon").join("views"),
             todo: home.join(".tasks").join("todo.hl"),
@@ -927,6 +932,36 @@ impl Home {
                         }
                     }
                     "S-RIGHT" if !vi && self.previewing => self.preview.pane.pagedown(),
+                    // d marks a line for deletion, with the lines under it,
+                    // and < deletes them.
+                    "d" if self.focus == BOX_TASKS => {
+                        let (line, _) = b.picked()?;
+                        let lines: Vec<String> = std::fs::read_to_string(&self.todo).unwrap_or_default().lines().map(String::from).collect();
+                        let i = line as usize - 1;
+                        if i < lines.len() {
+                            let on = !self.task_del.contains_key(&(i + 1));
+                            for (j, l) in lines.iter().enumerate().take(block_end(&lines, i)).skip(i) {
+                                if on {
+                                    self.task_del.insert(j + 1, l.clone());
+                                } else {
+                                    self.task_del.remove(&(j + 1));
+                                }
+                            }
+                        }
+                        b.step(1);
+                        self.mtime = None;
+                    }
+                    "<" if self.focus == BOX_TASKS => {
+                        let marks = std::mem::take(&mut self.task_del);
+                        rewrite(&self.todo, |lines| {
+                            let mut n = 0;
+                            lines.retain(|l| {
+                                n += 1;
+                                marks.get(&n) != Some(l)
+                            });
+                        });
+                        self.mtime = None;
+                    }
                     // x ticks a task done in todo.hl, or back to do.
                     "x" if self.focus == BOX_TASKS => {
                         let (line, _) = b.picked()?;
@@ -1026,7 +1061,7 @@ impl Home {
         }
         let swap = preview != self.previewing;
         self.previewing = preview;
-        drew |= self.boxes[BOX_MAIL].draw(preview, force);
+        drew |= self.boxes[BOX_MAIL].draw(self.focus == BOX_MAIL, force);
         if preview {
             drew |= self.draw_preview(mail, force || swap);
         } else {
@@ -1127,15 +1162,28 @@ impl Home {
     }
 
     /// The task list, coloured as HyperList, one row per line of the file.
+    /// A line marked for deletion shows a D, in kastrup's dark red.
     fn load_tasks(&mut self) {
         let text = std::fs::read_to_string(&self.todo).unwrap_or_default();
+        let lines: Vec<&str> = text.lines().collect();
+        self.task_del.retain(|n, l| lines.get(n - 1) == Some(&l.as_str()));
         let coloured = highlight::highlight_hyperlist(&text, usize::MAX).replace('\t', "   ");
-        let mut rows: Vec<_> = coloured.lines().enumerate().map(|(i, l)| (Some((i as i64 + 1, 0)), l.to_string())).collect();
+        let mut rows: Vec<_> = coloured.lines().enumerate().map(|(i, l)| {
+            let row = if self.task_del.contains_key(&(i + 1)) {
+                style::fg(&format!("D{}", crust::strip_ansi(l)), 88)
+            } else {
+                format!(" {l}")
+            };
+            (Some((i as i64 + 1, 0)), row)
+        }).collect();
         if rows.is_empty() {
             rows.push((Some((1, 0)), style::fg(" No tasks yet; Enter starts the list", 240)));
         }
         let b = &mut self.boxes[BOX_TASKS];
-        b.title = " Tasks ".into();
+        b.title = match self.task_del.len() {
+            0 => " Tasks ".into(),
+            n => format!(" Tasks · D {n} "),
+        };
         b.set_rows(rows);
     }
 }

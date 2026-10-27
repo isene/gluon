@@ -45,7 +45,8 @@ bottom edge:
   as in kastrup.
 - Agenda: Enter opens the event in the Calendar tab.
 - Tasks: Enter opens the task list in scribe at that line, and x ticks
-  the task done (`[x]`) or back.
+  the task done (`[x]`) or back. d marks a line for deletion, with the
+  lines under it, and `<` deletes the marked lines.
 
 Esc in the tab a box opened brings you back Home; in scribe, Esc is
 scribe's, and Ctrl+A goes Home.
