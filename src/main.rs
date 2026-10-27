@@ -607,7 +607,7 @@ const UNREAD: usize = 100;
 /// forward, edit, unsubscribe, triage, chat, attachments, the browser,
 /// label, file, react, snooze, hide, copy id, star and unsee. Home comes
 /// back when the key is done.
-const BACK: &[&str] = &["r", "e", "g", "f", "E", "O", "z", "C", "v", "x", "X", "l", "s", "h", "m", "M", "y", "*", "-", "u", "U"];
+const BACK: &[&str] = &["r", "e", "g", "f", "E", "O", "z", "C", "v", "x", "X", "l", "s", "k", "h", "m", "M", "y", "*", "-", "u", "U"];
 /// Those whose answer shows in kastrup's own pane, so the Mail tab stays.
 const STAY: &[&str] = &["I", "c"];
 
@@ -1404,11 +1404,13 @@ impl Home {
                 let page = b.pane.h as isize;
                 let all = b.rows.len() as isize;
                 // In the mail box, kastrup's letters act on the picked
-                // message, but j, k, t and ? are Home's.
+                // message, but t and ? are Home's.
                 let vi = self.focus != BOX_MAIL;
                 match k {
-                    "DOWN" | "j" => b.step(1),
-                    "UP" | "k" => b.step(-1),
+                    "DOWN" => b.step(1),
+                    "UP" => b.step(-1),
+                    "j" if vi => b.step(1),
+                    "k" if vi => b.step(-1),
                     "t" => b.tag(),
                     "?" => self.helping = true,
                     "PgDOWN" => b.step(page),
@@ -1711,7 +1713,7 @@ impl Home {
 /// does, split at the first two spaces.
 const HELP: &[&str] = &[
     "Every box",
-    "↑ ↓ j k  pick a row; PgUp, PgDn, Home and End jump",
+    "↑ ↓  pick a row; PgUp, PgDn, Home and End jump",
     "Enter  open it in its tab; Esc comes back",
     "t  tag it; Esc then hands Claude every tagged row",
     "Tab  the next box; Shift+Tab back; Esc Claude",
