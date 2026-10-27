@@ -45,6 +45,8 @@ at Home:
   as in kastrup.
 - Agenda: Enter opens the event in the Calendar tab, and y copies it as
   `tock:<id>` with its title and time. Ctrl+Y copies all of the event.
+  A green ▶ marks an event with a Teams, Zoom or Meet link, and J joins
+  it, as J does in tock.
 - Tasks: Enter opens the task list in scribe at that line, and x ticks
   the task done (`[x]`) or back. d marks a line for deletion, with the
   lines under it, and `<` deletes the marked lines. y copies the line as

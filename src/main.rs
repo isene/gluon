@@ -1067,6 +1067,8 @@ enum Act {
     Purge(Vec<i64>, Vec<i64>),
     /// The Calendar on an event, by its id and start.
     Event(i64, i64),
+    /// The meeting of an event opened (J), by its id and start.
+    Join(i64, i64),
     /// The task list in the editor, at a line.
     Edit(i64),
     /// An answer to message `id`, from Claude's ideas, for kastrup's r.
@@ -1137,6 +1139,8 @@ struct Home {
     /// The keys (?), in the right column while open.
     help: Frame,
     helping: bool,
+    /// Events in the agenda with a meeting link, which J opens.
+    joinable: HashSet<(i64, i64)>,
 }
 
 impl Home {
@@ -1145,7 +1149,7 @@ impl Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
                 Frame::new(" Enter opens · R/A read · d delete · < clears · t tags · ? keys "),
-                Frame::new(" Enter opens it in Calendar · t tags · y/^Y copies · ? keys "),
+                Frame::new(" Enter opens · J joins ▶ · t tags · y/^Y copies · ? keys "),
                 Frame::new(" Enter edits · x done · d/< delete · t tags · y/^Y copies · ? keys "),
             ],
             preview: Frame::new(""),
@@ -1170,6 +1174,7 @@ impl Home {
             note: String::new(),
             help: Frame::new(" Esc or ? closes "),
             helping: false,
+            joinable: HashSet::new(),
         };
         h.layout();
         h
@@ -1417,6 +1422,13 @@ impl Home {
                     "g" if vi => b.step(-all),
                     "G" if vi => b.step(all),
                     // In the mail box, y is kastrup's.
+                    "J" if self.focus == BOX_AGENDA => {
+                        let key = b.picked()?;
+                        if self.joinable.contains(&key) {
+                            return Some(Act::Join(key.0, key.1));
+                        }
+                        self.note = " No meeting link in this event".into();
+                    }
                     "y" | "C-Y" if vi => {
                         let (id, start) = b.picked()?;
                         return Some(Act::Copy(self.focus, id, start, k == "C-Y"));
@@ -1659,16 +1671,25 @@ impl Home {
         b.set_rows(rows);
     }
 
-    /// The coming 30 days, with a rule between one day and the next.
+    /// The coming 30 days, with a rule between one day and the next. An
+    /// event J can join has a green ▶ in front.
     fn load_agenda(&mut self, cal: &tock::app::App) {
         let b = &mut self.boxes[BOX_AGENDA];
         let w = b.inner();
         let mut rows = Vec::new();
+        self.joinable.clear();
         for a in cal.agenda(UNREAD, w) {
             if a.new_day && !rows.is_empty() {
                 rows.push((None, style::fg(&"─".repeat(w), 237)));
             }
-            rows.push((Some((a.id, a.start)), a.text));
+            let text = match (a.join, a.text.strip_prefix(' ')) {
+                (true, Some(rest)) => style::fg("▶", 78) + rest,
+                _ => a.text,
+            };
+            if a.join {
+                self.joinable.insert((a.id, a.start));
+            }
+            rows.push((Some((a.id, a.start)), text));
         }
         if rows.is_empty() {
             rows.push((None, style::fg("  Nothing in the next 30 days", 240)));
@@ -1723,8 +1744,8 @@ const HELP: &[&str] = &[
     "Agenda and Tasks",
     "y  copy as tock:<id> or todo:<n>, with its text",
     "^Y  copy all of the event, or the task with the lines under it",
-    "x  tick a task done or back",
-    "d <  mark a task for deletion; delete the marked",
+    "J  join the meeting of an event marked ▶",
+    "x d <  tick a task done; mark it for deletion; delete",
     "e  open the task list in scribe at that line",
     "Anywhere at Home",
     "^S  ideas from Claude     ^Z  Claude on the whole screen",
@@ -2006,6 +2027,7 @@ fn main() {
                                     c.attach(&what.join(" + "), &format!("At gluon's Home {head}:\n\n{}", text.join("\n")));
                                 }
                             }
+                            Some(Act::Join(id, start)) => home.note = format!(" {}", unseen.run(|| cal.join(id, start))),
                             Some(Act::Copy(b, id, start, whole)) => {
                                 let text = home.item(b, id, start, &mail, &cal);
                                 let text = match (whole, b) {
