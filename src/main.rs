@@ -797,14 +797,19 @@ impl Ideas {
     }
 
     /// claude -p on `prompt`, with no tools and none of the user's
-    /// settings, so the answer is the JSON alone. It wakes the key wait
-    /// as deck's reader does: SIGWINCH, read as a RESIZE.
-    fn start(&mut self, prompt: String, dir: PathBuf) {
+    /// settings but their writing rules in `rules` (~/.claude/CLAUDE.md),
+    /// so the answer is the JSON alone. It wakes the key wait as deck's
+    /// reader does: SIGWINCH, read as a RESIZE.
+    fn start(&mut self, prompt: String, dir: PathBuf, rules: PathBuf) {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let run = || -> Result<String, String> {
-                let mut child = std::process::Command::new("claude")
-                    .args(["-p", "--safe-mode", "--tools", "", "--no-session-persistence"])
+                let mut claude = std::process::Command::new("claude");
+                claude.args(["-p", "--safe-mode", "--tools", "", "--no-session-persistence"]);
+                if rules.is_file() {
+                    claude.arg("--append-system-prompt-file").arg(&rules);
+                }
+                let mut child = claude
                     .current_dir(dir)
                     .stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
@@ -909,14 +914,14 @@ impl Ideas {
     }
 }
 
-/// Claude's answer as ideas: the JSON array in it, with what cannot be
-/// done left out (an event with no date, a reply to a message it was not
-/// shown).
+/// Claude's answer as ideas: the first JSON array in it, with any text
+/// around it skipped and what cannot be done left out (an event with no
+/// date, a reply to a message it was not shown).
 fn parse_ideas(answer: &str, msgs: &std::collections::HashMap<i64, String>) -> Result<Vec<Idea>, String> {
-    let (Some(a), Some(b)) = (answer.find('['), answer.rfind(']')) else {
-        return Err("Claude's answer had no list".into());
-    };
-    let all: Vec<serde_json::Value> = serde_json::from_str(&answer[a..=b]).map_err(|e| e.to_string())?;
+    let all: Vec<serde_json::Value> = answer
+        .match_indices('[')
+        .find_map(|(a, _)| serde_json::Deserializer::from_str(&answer[a..]).into_iter().next()?.ok())
+        .ok_or("Claude's answer had no list")?;
     Ok(all
         .iter()
         .filter_map(|v| {
@@ -1169,7 +1174,7 @@ impl Home {
             let tasks: String = std::fs::read_to_string(&self.todo).unwrap_or_default().chars().take(8000).collect();
             prompt += &format!("\n# Task list\n{tasks}\n");
             self.ideas.msgs = unread.iter().map(|u| (u.id, format!("{}: {}", plain(&u.from), plain(&u.subject)))).collect();
-            self.ideas.start(prompt, self.dir.join(".gluon"));
+            self.ideas.start(prompt, self.dir.join(".gluon"), self.dir.join(".claude").join("CLAUDE.md"));
         }
         self.ideas.open = true;
         if self.full {
@@ -1950,6 +1955,8 @@ mod tests {
         assert_eq!(ideas.iter().map(|i| i.kind.as_str()).collect::<Vec<_>>(), ["task", "reply"]);
         assert_eq!(ideas[1].id, 7);
         assert!(parse_ideas("no list", &msgs).is_err());
+        let fenced = "[a note] first:\n```json\n[{\"kind\":\"task\",\"text\":\"Buy milk\"}]\n```\nThen [more].";
+        assert_eq!(parse_ideas(fenced, &msgs).unwrap().len(), 1);
     }
 
     #[test]

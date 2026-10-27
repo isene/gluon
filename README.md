@@ -61,8 +61,9 @@ messages. Enter does the picked one:
 
 d drops an idea, Esc closes the box, and Ctrl+S opens it again with the
 ideas left, or asks Claude again while it is open. Each ask is one
-`claude -p` run, of about 10 to 30 seconds, without your Claude Code
-settings or tools; between asks nothing runs.
+`claude -p` run, of about 10 to 30 seconds, with no tools and none of
+your Claude Code settings but `~/.claude/CLAUDE.md`, so the answers
+follow your writing rules. Between asks nothing runs.
 
 Esc in the tab a box opened brings you back Home; in scribe, Esc is
 scribe's, and Ctrl+A goes Home.
