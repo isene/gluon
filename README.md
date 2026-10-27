@@ -17,7 +17,7 @@ parts of one screen, so every key you know from them works the same here.
 
 Home has four parts, three boxes over Claude:
 - top left, the unread mail in kastrup's views 1, 2 and 3, newest first,
-  each in its view's colour (other views: put their keys in
+  each with its view's key in the view's colour (other views: put their keys in
   `~/.gluon/views`, as `1 2 4`);
 - top right, what is left of today and the coming 30 days in tock, with a
   line between one day and the next;
@@ -32,10 +32,13 @@ bottom edge:
 - Mail: the picked message shows on the right, in place of the agenda
   and the tasks, and stays unread; Space scrolls it, Shift+Left goes back.
   Enter opens it in the Mail tab. A message you browse gets an R mark,
-  which R takes off or puts back, and d marks one for deletion. Marked
-  messages stay in the box until `<` marks the R ones read in kastrup and
-  deletes the D ones. kastrup's other keys work too: r replies, f
-  forwards, and so on, on the picked message.
+  which R takes off or puts back; A marks them all, and d marks one for
+  deletion. Marked messages stay in the box until `<` marks the R ones
+  read in kastrup and deletes the D ones. kastrup's keys for one message
+  work too (r replies, f forwards, s files, h snoozes, * stars, and so
+  on), and Home comes back when they are done; I and c stay in the Mail
+  tab to show their answer. Each row has the colour and icon of its kind,
+  as in kastrup.
 - Agenda: Enter opens the event in the Calendar tab.
 - Tasks: Enter opens the task list in your editor at that line.
 

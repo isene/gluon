@@ -43,7 +43,8 @@ Where the user's things are:
   in place; the Tasks tab reads it again each time it is shown.
 
 Home lists the unread mail in the kastrup views whose keys are in
-~/.gluon/views, as \"1 2 3\" (the default), each in its view's colour.
+~/.gluon/views, as \"1 2 3\" (the default), each with its view's key in
+the view's colour.
 
 To change a view or make one (\"a view 4 for coaching, dark amber, with
 a box for new mail\"):
@@ -305,6 +306,14 @@ const CLAUDE: usize = 3;
 /// The most unread messages the mail box lists.
 const UNREAD: usize = 100;
 
+/// kastrup's keys for one message, run from the mail box at Home: replies,
+/// forward, edit, unsubscribe, triage, chat, attachments, the browser,
+/// label, file, react, snooze, hide, copy id, star and unsee. Home comes
+/// back when the key is done.
+const BACK: &[&str] = &["r", "e", "g", "f", "E", "O", "z", "C", "v", "x", "X", "l", "s", "k", "h", "m", "M", "y", "*", "-", "u", "U"];
+/// Those whose answer shows in kastrup's own pane, so the Mail tab stays.
+const STAY: &[&str] = &["I", "c"];
+
 /// A box at Home: a frame with its title in the top edge and rows inside.
 /// While it has the keys, one row is picked and the keys show in the
 /// bottom edge.
@@ -500,7 +509,7 @@ impl Home {
         let mut h = Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
-                Frame::new(" Enter opens · R read/unread · d delete · < clears · Space scrolls "),
+                Frame::new(" Enter opens · R/A read · d delete · < clears · r reply · Space scrolls "),
                 Frame::new(" Enter opens it in Calendar · Esc Claude "),
                 Frame::new(" Enter edits at this line · Esc Claude "),
             ],
@@ -633,6 +642,10 @@ impl Home {
                         }
                         self.sig = None;
                     }
+                    "A" if !vi => {
+                        self.marked_read.extend(b.rows.iter().filter_map(|r| r.0.map(|k| k.0)));
+                        self.sig = None;
+                    }
                     "<" if !vi => {
                         let del: Vec<i64> = self.marked_del.drain().collect();
                         let read: Vec<i64> = self.marked_read.drain().filter(|i| !del.contains(i)).collect();
@@ -642,12 +655,9 @@ impl Home {
                     }
                     _ => {
                         let (id, start) = b.picked()?;
-                        let one = k.chars().count() == 1;
                         return match (self.focus, k) {
                             (BOX_MAIL, "ENTER") => Some(Act::Mail(id, None)),
-                            // q does nothing there, and a digit would
-                            // leave the message for another view.
-                            (BOX_MAIL, _) if one && k != "q" && !k.starts_with(|c: char| c.is_ascii_digit()) => {
+                            (BOX_MAIL, _) if BACK.contains(&k) || STAY.contains(&k) => {
                                 Some(Act::Mail(id, Some(k.into())))
                             }
                             (BOX_AGENDA, "ENTER") => Some(Act::Event(id, start)),
@@ -733,8 +743,8 @@ impl Home {
         true
     }
 
-    /// The unread messages in the views, newest first, each in its view's
-    /// colour.
+    /// The unread messages in the views, newest first, each with its view's
+    /// key in the view's colour.
     fn load_mail(&mut self, mail: &kastrup::app::App) {
         let file = std::fs::read_to_string(&self.views).unwrap_or_default();
         let mut keys: Vec<&str> = file.split(|c: char| c.is_whitespace() || c == ',').filter(|k| !k.is_empty()).collect();
@@ -755,21 +765,23 @@ impl Home {
         }
         for u in &list {
             let when = clock(u.time, if clock(u.time, "%F") == today { "%H:%M" } else { "%e %b" });
-            // kastrup's colours: dark red for deletion, grey for read.
-            let (mark, light) = if self.marked_del.contains(&u.id) {
+            // kastrup's colours: dark red for deletion, grey for read, and
+            // else the colour of the message's kind.
+            let (mark, c) = if self.marked_del.contains(&u.id) {
                 (style::fg("D", 88), 88)
             } else if self.marked_read.contains(&u.id) {
                 (style::fg("R", 245), 240)
             } else {
-                (" ".into(), lighter(u.colour))
+                (" ".into(), u.kind)
             };
             let from = crust::truncate_ansi(&plain(&u.from), 18);
             let pad = " ".repeat(18usize.saturating_sub(crust::display_width(&from)));
             let line = format!(
-                "{}{mark}{when:>6}  {}  {}",
+                "{}{mark} {when:>6} {} {}  {}",
                 style::styled(&format!(" {} ", u.view), Some(255), Some(u.colour), ""),
-                style::fg(&(from + &pad), light),
-                style::fg(&plain(&u.subject), light),
+                style::fg(&u.icon, u.kind),
+                style::fg(&(from + &pad), c),
+                style::fg(&plain(&u.subject), c),
             );
             rows.push((Some((u.id, 0)), line));
         }
@@ -825,18 +837,6 @@ fn plain(s: &str) -> String {
     s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
 }
 
-/// A lighter shade of a colour from the 6x6x6 cube, for text on black:
-/// a view's colour is made for a bar's background, and some are too dark
-/// to read as text.
-fn lighter(c: u8) -> u8 {
-    if !(16..232).contains(&c) {
-        return c;
-    }
-    let up = |v: u8| v + (5 - v) / 2;
-    let i = c - 16;
-    16 + 36 * up(i / 36) + 6 * up(i / 6 % 6) + up(i % 6)
-}
-
 /// The local time `t` in strftime's format.
 fn clock(t: i64, fmt: &str) -> String {
     let Ok(fmt) = std::ffi::CString::new(fmt) else { return String::new() };
@@ -860,8 +860,8 @@ fn main() {
         println!("            ~/.gluon/views), the agenda and the tasks, and Claude below them.");
         println!("            Tab moves from box to box; Enter opens the picked item in its tab");
         println!("            (Esc comes back), and kastrup's keys act on a picked message;");
-        println!("            one you browse is marked read (R undoes it), d marks it for");
-        println!("            deletion, and < does both");
+        println!("            one you browse is marked read (R undoes it, A marks all), d");
+        println!("            marks it for deletion, and < does both");
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
         println!("  Calendar  tock, with its own keys and ~/.tock/");
         println!("  Tasks     ~/.tasks/todo.hl as HyperList; e edits it");
@@ -942,7 +942,7 @@ fn main() {
             // takes it first, to drop the one-message list.
             Some("ESC") if from_home && tab != HOME => {
                 if tab == MAIL {
-                    mail.after_wait(key.clone());
+                    unseen.run(|| mail.leave_message());
                 }
                 Some(HOME)
             }
@@ -1042,9 +1042,18 @@ fn main() {
                 MAIL => {
                     mail.repaint();
                     if let Some(Act::Mail(id, k)) = act {
-                        mail.goto_message(id);
+                        mail.goto_message(id, k.is_some());
+                        let done = k.as_deref().is_some_and(|k| BACK.contains(&k));
                         if k.is_some() {
                             mail.after_wait(k);
+                        }
+                        if done && mail.running() {
+                            unseen.run(|| mail.leave_message());
+                            (back, tab, from_home) = (MAIL, HOME, false);
+                            if let Some(c) = claude.app() {
+                                c.set_hidden(false);
+                            }
+                            home.repaint(&mail, &cal, &mut claude);
                         }
                     }
                 }
