@@ -1878,8 +1878,9 @@ fn main() {
     // tock first: its store opens to one program at a time, and it ends
     // the program when another tock has it. Nothing of kastrup has
     // started by then.
-    let Some(mut cal) = tock::app::start() else { return };
-    let Some(mut mail) = kastrup::app::start() else {
+    // Neither paints: Home is the first screen drawn.
+    let Some(mut cal) = tock::app::start(false) else { return };
+    let Some(mut mail) = kastrup::app::start(false) else {
         tock::app::finish(cal);
         return;
     };
