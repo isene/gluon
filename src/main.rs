@@ -39,9 +39,16 @@ Where the user's things are:
   on +.
 - Calendar: tock, in ~/.tock/. gluon has tock's store open, so never
   write to it. Add an event the way the calendar skill says, as a file the
-  running tock imports.
+  running tock imports. tock:<id> is an event; the text pasted after it
+  says what it is, since the store cannot be read while gluon runs.
 - Tasks: ~/.tasks/todo.hl, a HyperList file indented with tabs. Edit it
-  in place; the Tasks tab reads it again each time it is shown.
+  in place; the Tasks tab reads it again each time it is shown. todo:<n>
+  is line n of it.
+
+y in the agenda or the tasks box at Home copies the picked item as
+tock:<id> or todo:<n>, with its text. When the user moves from a box to
+this pane, the next prompt starts with an <on-screen> block holding the
+item that was picked there.
 
 Home lists the unread mail in the kastrup views whose keys are in
 ~/.gluon/views, as \"1 2 3\" (the default), each with its view's key in
@@ -1035,6 +1042,11 @@ enum Act {
     Reply(i64, String),
     /// An event was put in tock's incoming folder.
     Import,
+    /// The item picked in a box, by the box, its id and start: for
+    /// Claude when the keys went from the box to it, or for the
+    /// clipboard (y).
+    Context(usize, i64, i64),
+    Copy(usize, i64, i64),
 }
 
 /// Claude's name at the left of its bar, bright while it has the keys.
@@ -1084,6 +1096,8 @@ struct Home {
     right: u8,
     hint: String,
     dir: PathBuf,
+    /// What y copied, on the bar until the next key.
+    note: String,
 }
 
 impl Home {
@@ -1092,8 +1106,8 @@ impl Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
                 Frame::new(" Enter opens · R/A read · d delete · < clears · r reply · Space scrolls "),
-                Frame::new(" Enter opens it in Calendar · Esc Claude "),
-                Frame::new(" Enter edits at this line · x done · d delete · < clears · Esc Claude "),
+                Frame::new(" Enter opens it in Calendar · y copies · Esc Claude "),
+                Frame::new(" Enter edits · x done · d delete · < clears · y copies · Esc Claude "),
             ],
             preview: Frame::new(""),
             shown: None,
@@ -1114,6 +1128,7 @@ impl Home {
             right: 0,
             hint: String::new(),
             dir: home.to_path_buf(),
+            note: String::new(),
         };
         h.layout();
         h
@@ -1144,6 +1159,28 @@ impl Home {
         self.shown = None;
         self.ideas.frame.place(lw + 1, 2, rw, h);
         self.ideas.load();
+    }
+
+    /// The item picked in box `b`, its reference on the first line: the
+    /// message, the event, or the task with the lines under it.
+    fn item(&self, b: usize, id: i64, start: i64, mail: &kastrup::app::App, cal: &tock::app::App) -> String {
+        match b {
+            BOX_MAIL => {
+                let text: String = crust::strip_ansi(&mail.message_text(id, 100)).chars().take(6000).collect();
+                format!("kastrup:{id}\n{}\n", text.trim())
+            }
+            BOX_AGENDA => cal.event_text(id, start),
+            _ => {
+                let lines: Vec<String> = std::fs::read_to_string(&self.todo).unwrap_or_default().lines().map(String::from).collect();
+                let i = id as usize - 1;
+                let Some(first) = lines.get(i).map(|l| l.trim()).filter(|l| !l.is_empty()) else { return String::new() };
+                let mut out = format!("todo:{id} {first}\n");
+                for l in &lines[i..block_end(&lines, i)] {
+                    out += &format!("{l}\n");
+                }
+                out
+            }
+        }
     }
 
     /// Claude has the keys: its pane is focused and no ideas are open.
@@ -1290,10 +1327,22 @@ impl Home {
         if self.ideas.open {
             return self.idea_key(k, claude);
         }
+        self.note.clear();
         match k {
-            "TAB" => self.focus_on((self.focus + 1) % 4, claude),
-            "S-TAB" => self.focus_on((self.focus + 3) % 4, claude),
-            "ESC" => self.focus_on(CLAUDE, claude),
+            "TAB" | "S-TAB" | "ESC" => {
+                let from = self.focus;
+                let to = match k {
+                    "TAB" => (from + 1) % 4,
+                    "S-TAB" => (from + 3) % 4,
+                    _ => CLAUDE,
+                };
+                self.focus_on(to, claude);
+                // Claude gets the item picked in the box it came from.
+                if to == CLAUDE && from != CLAUDE {
+                    let (id, start) = self.boxes[from].picked()?;
+                    return Some(Act::Context(from, id, start));
+                }
+            }
             _ => {
                 let b = self.boxes.get_mut(self.focus)?;
                 let page = b.pane.h as isize;
@@ -1312,6 +1361,11 @@ impl Home {
                     "END" => b.step(all),
                     "g" if vi => b.step(-all),
                     "G" if vi => b.step(all),
+                    // In the mail box, y is kastrup's.
+                    "y" if vi => {
+                        let (id, start) = b.picked()?;
+                        return Some(Act::Copy(self.focus, id, start));
+                    }
                     // At the end of the message, Space goes on to the next.
                     " " if !vi && self.previewing => {
                         let was = self.preview.pane.ix;
@@ -1423,7 +1477,8 @@ impl Home {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
         let hint = self.ideas.hint();
-        if force || now / 60 != self.minute || hint != self.hint {
+        let mark = format!("{hint}\n{}", self.note);
+        if force || now / 60 != self.minute || mark != self.hint {
             if now / 60 != self.minute {
                 self.load_agenda(cal);
             }
@@ -1437,8 +1492,10 @@ impl Home {
                 ),
                 245,
             );
-            self.hint = hint;
-            let left = tab_line(HOME);
+            self.hint = mark;
+            let tabs = tab_line(HOME);
+            let fit = cols.saturating_sub(crust::display_width(&tabs) + crust::display_width(&right) + 1);
+            let left = tabs + &style::fg(&crust::truncate_ansi(&self.note, fit), 156);
             let room = cols.saturating_sub(crust::display_width(&left) + crust::display_width(&right));
             drew |= show(&mut self.bar, format!("{left}{}{right}", " ".repeat(room)), force);
         }
@@ -1798,6 +1855,20 @@ fn main() {
                             Some(Act::Import) => {
                                 unseen.run(|| cal.after_wait(None));
                                 home.minute = 0;
+                            }
+                            Some(Act::Context(b, id, start)) => {
+                                let text = home.item(b, id, start, &mail, &cal);
+                                let what = ["kastrup", "tock", "tasks"][b];
+                                if let (Some(c), false) = (claude.app(), text.is_empty()) {
+                                    c.attach(what, &format!("At gluon's Home this was picked:\n\n{text}"));
+                                }
+                            }
+                            Some(Act::Copy(b, id, start)) => {
+                                let text = home.item(b, id, start, &mail, &cal);
+                                if let Some(r) = text.lines().next() {
+                                    crust::clipboard_copy(r, "clipboard");
+                                    home.note = format!(" Copied: {r}");
+                                }
                             }
                             None => {}
                         }

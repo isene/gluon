@@ -43,10 +43,16 @@ bottom edge:
   on), and Home comes back when they are done; I and c stay in the Mail
   tab to show their answer. Each row has the colour and icon of its kind,
   as in kastrup.
-- Agenda: Enter opens the event in the Calendar tab.
+- Agenda: Enter opens the event in the Calendar tab, and y copies it as
+  `tock:<id>` with its title and time.
 - Tasks: Enter opens the task list in scribe at that line, and x ticks
   the task done (`[x]`) or back. d marks a line for deletion, with the
-  lines under it, and `<` deletes the marked lines.
+  lines under it, and `<` deletes the marked lines. y copies the line as
+  `todo:<n>` with its text.
+
+When the keys go from a box to Claude (Esc or Tab), Claude gets the
+item that was picked there with your next prompt: the message, the event
+or the task, so you can ask about it right away.
 
 **Ctrl+S** at Home asks Claude what to do about the unread mail, the
 agenda and the tasks. Its ideas show on the right, in place of the agenda
