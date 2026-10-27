@@ -113,13 +113,140 @@ impl Unseen {
     }
 }
 
-/// The Tasks tab: the todo file, coloured as HyperList, edited in the
-/// editor (scribe unless $EDITOR names another).
+/// The Tasks tab: the todo file, coloured as HyperList, or as a board (b
+/// switches), edited in the editor (scribe unless $EDITOR names another).
 struct Tasks {
     top: Pane,
     body: Pane,
     bottom: Pane,
     path: PathBuf,
+    board: bool,
+    lanes: Vec<Lane>,
+    /// The picked place on the board: lane, column and card in that cell.
+    pick: (usize, usize, usize),
+}
+
+/// The board's columns, first to last, each with the box it writes in
+/// front of a task in todo.hl. A task with no box is to do.
+const COLUMNS: [(&str, &str); 4] = [("To do", ""), ("Doing", "[O] "), ("Waiting", "[-] "), ("Done", "[x] ")];
+
+/// A lane of the board: a line at the top level of todo.hl, and its tasks,
+/// the lines one level in. Each knows its line in the file.
+struct Lane {
+    line: usize,
+    name: String,
+    cards: Vec<Card>,
+}
+
+struct Card {
+    line: usize,
+    text: String,
+    col: usize,
+}
+
+/// A task's column, from the box in front of it, and the task without it.
+fn column_of(task: &str) -> (usize, &str) {
+    for (b, c) in [("[_] ", 0), ("[ ] ", 0), ("[O] ", 1), ("[o] ", 1), ("[-] ", 2), ("[x] ", 3), ("[X] ", 3)] {
+        if let Some(rest) = task.strip_prefix(b) {
+            return (c, rest);
+        }
+    }
+    (0, task)
+}
+
+fn depth(line: &str) -> usize {
+    line.len() - line.trim_start_matches('\t').len()
+}
+
+fn lanes_of(text: &str) -> Vec<Lane> {
+    let lines: Vec<&str> = text.lines().collect();
+    let Some(top) = lines.iter().filter(|l| !l.trim().is_empty()).map(|l| depth(l)).min() else {
+        return Vec::new();
+    };
+    let mut lanes: Vec<Lane> = Vec::new();
+    for (i, l) in lines.iter().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+        if depth(l) == top {
+            lanes.push(Lane { line: i, name: l.trim().into(), cards: Vec::new() });
+        } else if let (true, Some(lane)) = (depth(l) == top + 1, lanes.last_mut()) {
+            let (col, text) = column_of(l.trim_start_matches('\t'));
+            lane.cards.push(Card { line: i, text: text.trim_end().into(), col });
+        }
+    }
+    lanes
+}
+
+/// Where the item on line `i` ends: after the last line below it that is
+/// further in.
+fn block_end(lines: &[String], i: usize) -> usize {
+    let d = depth(&lines[i]);
+    let mut end = i + 1;
+    for (j, l) in lines.iter().enumerate().skip(i + 1) {
+        if l.trim().is_empty() {
+            continue;
+        }
+        if depth(l) <= d {
+            break;
+        }
+        end = j + 1;
+    }
+    end
+}
+
+/// A task's line with the box of column `col` in front.
+fn in_column(line: &str, col: usize) -> String {
+    let tabs = depth(line);
+    format!("{}{}{}", &line[..tabs], COLUMNS[col].1, column_of(&line[tabs..]).1)
+}
+
+/// The task on line `line`, with what is under it, moved to the end of the
+/// lane on line `lane`.
+fn to_lane(lines: &mut Vec<String>, line: usize, lane: usize) {
+    let end = block_end(lines, line);
+    let block: Vec<String> = lines.drain(line..end).collect();
+    let lane = if lane > line { lane - block.len() } else { lane };
+    let at = block_end(lines, lane);
+    lines.splice(at..at, block);
+}
+
+/// The file with `f` done to its lines. Written in place, so a link or the
+/// file's permissions stay.
+fn rewrite(path: &Path, f: impl FnOnce(&mut Vec<String>)) {
+    let Ok(text) = std::fs::read_to_string(path) else { return };
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    f(&mut lines);
+    let mut out = lines.join("\n");
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    let _ = std::fs::write(path, out);
+}
+
+/// `s` in at most `n` lines of `w` columns, broken at spaces.
+fn wrap(s: &str, w: usize, n: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for word in s.split_whitespace() {
+        if !cur.is_empty() && crust::display_width(&cur) + 1 + crust::display_width(word) > w {
+            out.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(word);
+    }
+    out.push(cur);
+    if out.len() > n {
+        out.truncate(n);
+        out[n - 1].push_str(" …");
+    }
+    out.into_iter().map(|l| if crust::display_width(&l) > w { crust::truncate_ansi(&l, w) } else { l }).collect()
+}
+
+/// `s` cut or filled with spaces to `w` columns.
+fn pad(s: &str, w: usize) -> String {
+    let t = crust::truncate_ansi(s, w);
+    let n = w.saturating_sub(crust::display_width(&t));
+    t + &" ".repeat(n)
 }
 
 impl Tasks {
@@ -129,6 +256,9 @@ impl Tasks {
             body: Pane::new(1, 2, 1, 1, 255, 0),
             bottom: Pane::new(1, 3, 1, 1, 252, 236),
             path: home.join(".tasks").join("todo.hl"),
+            board: false,
+            lanes: Vec::new(),
+            pick: (0, 0, 0),
         };
         t.layout();
         t
@@ -156,14 +286,157 @@ impl Tasks {
     fn repaint(&mut self) {
         Crust::clear_screen();
         self.layout();
-        self.load();
         self.top.say(&tab_line(TASKS));
+        if self.board {
+            self.draw_board();
+            self.bottom.say(&style::fg(
+                " arrows pick  S-←→ column  S-↑↓ section  e edit  b list  Ctrl+O next tab  Ctrl+A Home  Q quit",
+                245,
+            ));
+            return;
+        }
+        self.load();
         self.body.full_refresh();
-        self.bottom.say(&style::fg(" j/k scroll  e edit  Ctrl+O next tab  Ctrl+A Home  Q quit", 245));
+        self.bottom.say(&style::fg(" j/k scroll  e edit  b board  Ctrl+O next tab  Ctrl+A Home  Q quit", 245));
+    }
+
+    /// The lanes over each other, the columns side by side, and the
+    /// picked card kept in view.
+    fn draw_board(&mut self) {
+        self.lanes = lanes_of(&std::fs::read_to_string(&self.path).unwrap_or_default());
+        let n = COLUMNS.len();
+        let cw = (self.body.w as usize).saturating_sub(n - 1) / n;
+        let mut out = Vec::new();
+        let heads: Vec<String> = COLUMNS.iter().enumerate().map(|(c, (name, _))| {
+            let k = self.lanes.iter().flat_map(|l| &l.cards).filter(|x| x.col == c).count();
+            pad(&format!("{} {}", style::bold(&style::fg(name, 255)), style::fg(&k.to_string(), 240)), cw)
+        }).collect();
+        out.push(heads.join(" "));
+        out.push(vec![style::fg(&"─".repeat(cw), 238); n].join(" "));
+        let mut at = 0;
+        for (li, lane) in self.lanes.iter().enumerate() {
+            let head = style::bold(&style::fg(&format!("▾ {}", lane.name), 156)) + &style::fg(&format!(" {} ", lane.cards.len()), 240);
+            let rule = "─".repeat((self.body.w as usize).saturating_sub(crust::display_width(&head)));
+            out.push(head + &style::fg(&rule, 237));
+            let mut cells: Vec<Vec<String>> = vec![Vec::new(); n];
+            for (c, cell) in cells.iter_mut().enumerate() {
+                // An empty cell, picked, shows as a slot.
+                if self.pick == (li, c, 0) && !lane.cards.iter().any(|x| x.col == c) {
+                    at = out.len();
+                    cell.push(style::styled(&" ".repeat(cw), None, Some(238), ""));
+                }
+                for (i, card) in lane.cards.iter().filter(|x| x.col == c).enumerate() {
+                    let picked = self.pick == (li, c, i);
+                    if picked {
+                        at = out.len() + cell.len();
+                    }
+                    for (j, line) in wrap(&card.text, cw.saturating_sub(2), 3).iter().enumerate() {
+                        let t = pad(&format!("{}{line}", if j == 0 { "• " } else { "  " }), cw);
+                        cell.push(match (picked, c == n - 1) {
+                            (true, _) => style::styled(&t, Some(255), Some(238), ""),
+                            (_, true) => style::fg(&t, 240),
+                            _ => style::fg(&t, 252),
+                        });
+                    }
+                }
+            }
+            let h = cells.iter().map(Vec::len).max().unwrap_or(0).max(1);
+            for r in 0..h {
+                let row: Vec<String> = cells.iter().map(|cell| cell.get(r).cloned().unwrap_or_else(|| " ".repeat(cw))).collect();
+                out.push(row.join(" "));
+            }
+            out.push(String::new());
+        }
+        if self.lanes.is_empty() {
+            out.push(style::fg(&format!(" No sections in {}. Press e to start it.", self.path.display()), 245));
+        }
+        let h = self.body.h as usize;
+        self.body.set_text(&out.join("\n"));
+        if at < self.body.ix + 3 {
+            self.body.ix = at.saturating_sub(3);
+        } else if at + 3 > self.body.ix + h {
+            self.body.ix = (at + 3).saturating_sub(h);
+        }
+        self.body.full_refresh();
+    }
+
+    /// The cards in one cell of the board.
+    fn cell(&self, lane: usize, col: usize) -> Vec<&Card> {
+        self.lanes.get(lane).map_or(Vec::new(), |l| l.cards.iter().filter(|x| x.col == col).collect())
+    }
+
+    fn picked(&self) -> Option<&Card> {
+        let (l, c, i) = self.pick;
+        self.cell(l, c).get(i).copied()
+    }
+
+    /// A key on the board: the arrows pick, the shifted arrows move the
+    /// picked task to the next column (its box in todo.hl) or the next
+    /// section.
+    fn board_key(&mut self, key: &str) {
+        let (l, c, i) = self.pick;
+        let last = COLUMNS.len() - 1;
+        match key {
+            "LEFT" | "h" | "RIGHT" | "l" => {
+                let c = if key == "LEFT" || key == "h" { c.saturating_sub(1) } else { (c + 1).min(last) };
+                self.pick = (l, c, i.min(self.cell(l, c).len().saturating_sub(1)));
+            }
+            "UP" | "k" if i > 0 => self.pick = (l, c, i - 1),
+            "UP" | "k" if l > 0 => self.pick = (l - 1, c, self.cell(l - 1, c).len().saturating_sub(1)),
+            "DOWN" | "j" if i + 1 < self.cell(l, c).len() => self.pick = (l, c, i + 1),
+            "DOWN" | "j" if l + 1 < self.lanes.len() => self.pick = (l + 1, c, 0),
+            "S-LEFT" | "H" | "S-RIGHT" | "L" => {
+                let Some(line) = self.picked().map(|x| x.line) else { return };
+                let to = if key == "S-LEFT" || key == "H" { c.checked_sub(1) } else { Some(c + 1).filter(|&t| t <= last) };
+                let Some(to) = to else { return };
+                rewrite(&self.path, |lines| {
+                    if let Some(s) = lines.get_mut(line) {
+                        *s = in_column(s, to);
+                    }
+                });
+                self.lanes = lanes_of(&std::fs::read_to_string(&self.path).unwrap_or_default());
+                let i = self.cell(l, to).iter().position(|x| x.line == line).unwrap_or(0);
+                self.pick = (l, to, i);
+            }
+            "S-UP" | "K" | "S-DOWN" | "J" => {
+                let Some(line) = self.picked().map(|x| x.line) else { return };
+                let to = if key == "S-UP" || key == "K" { l.checked_sub(1) } else { Some(l + 1).filter(|&t| t < self.lanes.len()) };
+                let Some(to) = to else { return };
+                let lane = self.lanes[to].line;
+                rewrite(&self.path, |lines| to_lane(lines, line, lane));
+                self.lanes = lanes_of(&std::fs::read_to_string(&self.path).unwrap_or_default());
+                self.pick = (to, c, self.cell(to, c).len().saturating_sub(1));
+            }
+            "e" | "ENTER" => {
+                let line = self.picked().map(|x| x.line).or(self.lanes.get(l).map(|x| x.line)).unwrap_or(0);
+                edit(&self.path, line as i64 + 1);
+                self.repaint();
+                return;
+            }
+            "b" => {
+                self.board = false;
+                self.repaint();
+                return;
+            }
+            "RESIZE" => {
+                self.repaint();
+                return;
+            }
+            _ => return,
+        }
+        self.draw_board();
     }
 
     /// For Claude: which file is on screen, and from where.
     fn claude_context(&self) -> String {
+        if self.board {
+            let at = self.picked().map_or(String::new(), |x| format!(" The picked task is at line {}.", x.line + 1));
+            return format!(
+                "The task list {} is on screen as a board: its top-level lines are the lanes, the tasks under them \
+                 the cards, in To do (no box), Doing ([O]), Waiting ([-]) or Done ([x]).{at} It is HyperList.",
+                self.path.display()
+            );
+        }
         format!(
             "The task list {} is on screen, from line {}. It is HyperList.",
             self.path.display(), self.body.ix + 1
@@ -176,7 +449,20 @@ impl Tasks {
     }
 
     fn key(&mut self, key: &str) {
+        if self.board {
+            self.board_key(key);
+            return;
+        }
         match key {
+            "b" => {
+                self.board = true;
+                self.lanes = lanes_of(&std::fs::read_to_string(&self.path).unwrap_or_default());
+                if self.picked().is_none() {
+                    let first = self.lanes.iter().enumerate().find_map(|(l, lane)| lane.cards.first().map(|x| (l, x.col)));
+                    self.pick = first.map_or((0, 0, 0), |(l, c)| (l, c, 0));
+                }
+                self.repaint();
+            }
             "j" | "DOWN" => { self.body.linedown(); }
             "k" | "UP" => { self.body.lineup(); }
             " " | "PgDOWN" => { self.body.pagedown(); }
@@ -864,7 +1150,7 @@ fn main() {
         println!("            marks it for deletion, and < does both");
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
         println!("  Calendar  tock, with its own keys and ~/.tock/");
-        println!("  Tasks     ~/.tasks/todo.hl as HyperList; e edits it");
+        println!("  Tasks     ~/.tasks/todo.hl as HyperList, or as a board (b); e edits it");
         println!();
         println!("Claude is deck: one Claude Code session that stays, in ~/.gluon/. Ctrl+Z");
         println!("gives it the whole screen and back. Ctrl+O moves to the next tab. Ctrl+A");
@@ -1086,4 +1372,43 @@ fn main() {
     }
     tock::app::finish(cal);
     kastrup::app::finish(mail);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TODO: &str = "\tInbox\n\tHome\n\t\tPaint\n\t\t[O] Bike\n\t\t\tChain\n\t\t[x] Milk\n\tWork\n\t\t[-] Ask\n";
+
+    #[test]
+    fn lanes_are_the_top_lines_and_cards_the_lines_under_them() {
+        let lanes = lanes_of(TODO);
+        let names: Vec<&str> = lanes.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["Inbox", "Home", "Work"]);
+        let home: Vec<(&str, usize)> = lanes[1].cards.iter().map(|c| (c.text.as_str(), c.col)).collect();
+        assert_eq!(home, [("Paint", 0), ("Bike", 1), ("Milk", 3)]);
+        assert_eq!((lanes[2].cards[0].text.as_str(), lanes[2].cards[0].col), ("Ask", 2));
+    }
+
+    #[test]
+    fn a_column_is_the_box_in_front() {
+        assert_eq!(in_column("\t\tPaint", 1), "\t\t[O] Paint");
+        assert_eq!(in_column("\t\t[O] Bike", 3), "\t\t[x] Bike");
+        assert_eq!(in_column("\t\t[x] Milk", 0), "\t\tMilk");
+    }
+
+    #[test]
+    fn a_task_moves_to_another_lane_with_what_is_under_it() {
+        let mut lines: Vec<String> = TODO.lines().map(String::from).collect();
+        to_lane(&mut lines, 3, 0);
+        assert_eq!(lines, ["\tInbox", "\t\t[O] Bike", "\t\t\tChain", "\tHome", "\t\tPaint", "\t\t[x] Milk", "\tWork", "\t\t[-] Ask"]);
+        to_lane(&mut lines, 1, 6);
+        assert_eq!(lines[3..], ["\t\t[x] Milk", "\tWork", "\t\t[-] Ask", "\t\t[O] Bike", "\t\t\tChain"]);
+    }
+
+    #[test]
+    fn a_long_task_wraps_at_spaces_and_ends_in_dots() {
+        assert_eq!(wrap("one two three four", 9, 3), ["one two", "three", "four"]);
+        assert_eq!(wrap("one two three four", 9, 2), ["one two", "three …"]);
+    }
 }

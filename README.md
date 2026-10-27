@@ -67,6 +67,23 @@ the session as #gluon, so `cc gluon` and fleet find it.
 In the Tasks tab, `j`/`k` scroll, `e` or Enter opens the list in your
 editor (`$EDITOR`, or scribe when it is not set).
 
+`b` shows the list as a board, and `b` again goes back. The lines at the
+top level are the lanes (Inbox, Work, ...), and the tasks under them are
+cards in four columns. The box in front of a task in todo.hl says its
+column:
+
+| Column | Box |
+|---|---|
+| To do | none, or `[_]` |
+| Doing | `[O]` |
+| Waiting | `[-]` |
+| Done | `[x]` |
+
+The arrows pick a card. Shift+Left and Shift+Right (or H and L) move it a
+column, which rewrites its box. Shift+Up and Shift+Down (or K and J) move
+it to the end of the lane above or below, with the lines under it. `e`
+edits the file at the picked card.
+
 Run gluon instead of kastrup and tock, not beside them: tock's calendar
 opens to one program at a time, and two kastrups would both poll the same
 sources.
