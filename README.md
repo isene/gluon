@@ -48,6 +48,22 @@ bottom edge:
   the task done (`[x]`) or back. d marks a line for deletion, with the
   lines under it, and `<` deletes the marked lines.
 
+**Ctrl+S** at Home asks Claude what to do about the unread mail, the
+agenda and the tasks. Its ideas show on the right, in place of the agenda
+and the tasks: tasks to add, events for the calendar, and answers to
+messages. Enter does the picked one:
+- a task goes at the end of the Inbox lane in todo.hl (or of the first
+  lane);
+- an event goes in tock, which then shows its day;
+- an answer opens as kastrup's reply, with Claude's text written in, so
+  you change it, send it or drop it at the review. Nothing is sent
+  without you.
+
+d drops an idea, Esc closes the box, and Ctrl+S opens it again with the
+ideas left, or asks Claude again while it is open. Each ask is one
+`claude -p` run, of about 10 to 30 seconds, without your Claude Code
+settings or tools; between asks nothing runs.
+
 Esc in the tab a box opened brings you back Home; in scribe, Esc is
 scribe's, and Ctrl+A goes Home.
 
