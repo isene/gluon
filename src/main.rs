@@ -607,7 +607,7 @@ const UNREAD: usize = 100;
 /// forward, edit, unsubscribe, triage, chat, attachments, the browser,
 /// label, file, react, snooze, hide, copy id, star and unsee. Home comes
 /// back when the key is done.
-const BACK: &[&str] = &["r", "e", "g", "f", "E", "O", "z", "C", "v", "x", "X", "l", "s", "k", "h", "m", "M", "y", "*", "-", "u", "U"];
+const BACK: &[&str] = &["r", "e", "g", "f", "E", "O", "z", "C", "v", "x", "X", "l", "s", "h", "m", "M", "y", "*", "-", "u", "U"];
 /// Those whose answer shows in kastrup's own pane, so the Mail tab stays.
 const STAY: &[&str] = &["I", "c"];
 
@@ -630,6 +630,8 @@ struct Frame {
     dirty: bool,
     /// The title and the focus the frame was drawn with.
     drawn: Option<(String, bool)>,
+    /// Rows tagged for Claude (t), by their keys, on a dark grey.
+    tags: HashSet<(i64, i64)>,
 }
 
 impl Frame {
@@ -644,6 +646,7 @@ impl Frame {
             top: 0,
             dirty: true,
             drawn: None,
+            tags: HashSet::new(),
         }
     }
 
@@ -668,6 +671,8 @@ impl Frame {
         if let Some(i) = was.and_then(|k| self.rows.iter().position(|r| r.0 == Some(k))) {
             self.sel = i;
         }
+        let keys: HashSet<(i64, i64)> = self.rows.iter().filter_map(|r| r.0).collect();
+        self.tags.retain(|t| keys.contains(t));
         self.step(0);
         self.dirty = true;
     }
@@ -700,6 +705,26 @@ impl Frame {
         self.rows.get(self.sel).and_then(|r| r.0)
     }
 
+    /// t: the picked row tagged, or not, and the pick on to the next.
+    fn tag(&mut self) {
+        if let Some(k) = self.picked() {
+            if !self.tags.remove(&k) {
+                self.tags.insert(k);
+            }
+            self.step(1);
+        }
+    }
+
+    /// The tagged rows, in the order they show, and no tags left.
+    fn take_tags(&mut self) -> Vec<(i64, i64)> {
+        if self.tags.is_empty() {
+            return Vec::new();
+        }
+        let tags = std::mem::take(&mut self.tags);
+        self.dirty = true;
+        self.rows.iter().filter_map(|r| r.0).filter(|k| tags.contains(k)).collect()
+    }
+
     /// The frame and the rows, each drawn when it changed, or both when
     /// `force`. True when something was drawn.
     fn draw(&mut self, focused: bool, force: bool) -> bool {
@@ -715,10 +740,16 @@ impl Frame {
         let w = self.inner();
         let text: Vec<String> = self.rows.iter().enumerate().skip(self.top).take(self.pane.h as usize)
             .map(|(i, (k, t))| {
+                let tagged = k.is_some_and(|k| self.tags.contains(&k));
+                let p = crust::strip_ansi(t);
+                let pad = " ".repeat(w.saturating_sub(crust::display_width(&p)));
                 if focused && i == self.sel && k.is_some() {
-                    let p = crust::strip_ansi(t);
-                    let pad = " ".repeat(w.saturating_sub(crust::display_width(&p)));
-                    style::styled(&(p + &pad), Some(255), Some(238), "")
+                    style::styled(&(p + &pad), Some(255), Some(if tagged { 240 } else { 238 }), "")
+                } else if tagged {
+                    // The grey again after each reset inside the row.
+                    let bg = style::set_bg(236);
+                    let again = format!("{}{bg}", style::RESET);
+                    format!("{bg}{}{pad}{}", t.replace(style::RESET, &again), style::RESET)
                 } else {
                     t.clone()
                 }
@@ -1042,10 +1073,11 @@ enum Act {
     Reply(i64, String),
     /// An event was put in tock's incoming folder.
     Import,
-    /// The item picked in a box, by the box, its id and start: for
-    /// Claude when the keys went from the box to it, or for the
-    /// clipboard (y).
-    Context(usize, i64, i64),
+    /// Items in the boxes, by the box, the id and the start: the tagged
+    /// ones, or else the picked one, for Claude when the keys went from a
+    /// box to it.
+    Context(Vec<(usize, i64, i64)>),
+    /// The picked item, for the clipboard (y).
     Copy(usize, i64, i64),
     /// kastrup's + in the Mail tab: the drafts, postponed and scheduled
     /// messages, or a new one.
@@ -1101,6 +1133,9 @@ struct Home {
     dir: PathBuf,
     /// What y copied, on the bar until the next key.
     note: String,
+    /// The keys (?), in the right column while open.
+    help: Frame,
+    helping: bool,
 }
 
 impl Home {
@@ -1108,9 +1143,9 @@ impl Home {
         let mut h = Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
-                Frame::new(" Enter opens · R/A read · d delete · < clears · r reply · + drafts "),
-                Frame::new(" Enter opens it in Calendar · y copies · Esc Claude "),
-                Frame::new(" Enter edits · x done · d delete · < clears · y copies · Esc Claude "),
+                Frame::new(" Enter opens · R/A read · d delete · < clears · t tags · ? keys "),
+                Frame::new(" Enter opens it in Calendar · t tags · y copies · ? keys "),
+                Frame::new(" Enter edits · x done · d/< delete · t tags · y copies · ? keys "),
             ],
             preview: Frame::new(""),
             shown: None,
@@ -1132,6 +1167,8 @@ impl Home {
             hint: String::new(),
             dir: home.to_path_buf(),
             note: String::new(),
+            help: Frame::new(" Esc or ? closes "),
+            helping: false,
         };
         h.layout();
         h
@@ -1162,6 +1199,9 @@ impl Home {
         self.shown = None;
         self.ideas.frame.place(lw + 1, 2, rw, h);
         self.ideas.load();
+        self.help.place(lw + 1, 2, rw, h);
+        self.help.title = " Keys at Home ".into();
+        self.help.set_rows(HELP.iter().map(|l| (None, help_row(l))).collect());
     }
 
     /// The item picked in box `b`, its reference on the first line: the
@@ -1331,6 +1371,10 @@ impl Home {
             return self.idea_key(k, claude);
         }
         self.note.clear();
+        // Any key closes the keys; Esc and ? do nothing else.
+        if std::mem::take(&mut self.helping) && matches!(k, "ESC" | "?" | "q") {
+            return None;
+        }
         match k {
             "+" => return Some(Act::Compose),
             "TAB" | "S-TAB" | "ESC" => {
@@ -1341,24 +1385,32 @@ impl Home {
                     _ => CLAUDE,
                 };
                 self.focus_on(to, claude);
-                // Claude gets the item picked in the box it came from.
+                // Claude gets the rows tagged in all three boxes, or else
+                // the one picked in the box the keys came from.
                 if to == CLAUDE && from != CLAUDE {
-                    let (id, start) = self.boxes[from].picked()?;
-                    return Some(Act::Context(from, id, start));
+                    let mut items = Vec::new();
+                    for (b, f) in self.boxes.iter_mut().enumerate() {
+                        items.extend(f.take_tags().into_iter().map(|(id, s)| (b, id, s)));
+                    }
+                    if items.is_empty() {
+                        let (id, start) = self.boxes[from].picked()?;
+                        items.push((from, id, start));
+                    }
+                    return Some(Act::Context(items));
                 }
             }
             _ => {
                 let b = self.boxes.get_mut(self.focus)?;
                 let page = b.pane.h as isize;
                 let all = b.rows.len() as isize;
-                // kastrup moves with the arrows alone, and its letters act
-                // on the picked message.
+                // In the mail box, kastrup's letters act on the picked
+                // message, but j, k, t and ? are Home's.
                 let vi = self.focus != BOX_MAIL;
                 match k {
-                    "DOWN" => b.step(1),
-                    "UP" => b.step(-1),
-                    "j" if vi => b.step(1),
-                    "k" if vi => b.step(-1),
+                    "DOWN" | "j" => b.step(1),
+                    "UP" | "k" => b.step(-1),
+                    "t" => b.tag(),
+                    "?" => self.helping = true,
                     "PgDOWN" => b.step(page),
                     "PgUP" => b.step(-page),
                     "HOME" => b.step(-all),
@@ -1520,7 +1572,7 @@ impl Home {
                 self.load_mail(mail);
             }
         }
-        let right = if self.ideas.open { 2 } else { preview as u8 };
+        let right = if self.ideas.open { 2 } else if self.helping { 3 } else { preview as u8 };
         let swap = right != self.right;
         self.right = right;
         self.previewing = preview;
@@ -1528,6 +1580,8 @@ impl Home {
         drew |= self.boxes[BOX_MAIL].draw(keys[BOX_MAIL], force);
         if self.ideas.open {
             drew |= self.ideas.frame.draw(true, force || swap);
+        } else if self.helping {
+            drew |= self.help.draw(true, force || swap);
         } else if preview {
             drew |= self.draw_preview(mail, force || swap);
         } else {
@@ -1637,7 +1691,9 @@ impl Home {
             } else {
                 format!(" {l}")
             };
-            (Some((i as i64 + 1, 0)), row)
+            // Keyed by the line's text too, so a tag never moves to
+            // another task when lines come or go above it.
+            (Some((i as i64 + 1, line_key(lines.get(i).unwrap_or(&"")))), row)
         }).collect();
         if rows.is_empty() {
             rows.push((Some((1, 0)), style::fg(" No tasks yet; Enter starts the list", 240)));
@@ -1649,6 +1705,48 @@ impl Home {
         };
         b.set_rows(rows);
     }
+}
+
+/// The keys at Home, as ? shows them: a heading, then a key and what it
+/// does, split at the first two spaces.
+const HELP: &[&str] = &[
+    "Every box",
+    "↑ ↓ j k  pick a row; PgUp, PgDn, Home and End jump",
+    "Enter  open it in its tab; Esc comes back",
+    "t  tag it; Esc then hands Claude every tagged row",
+    "Tab  the next box; Shift+Tab back; Esc Claude",
+    "+  kastrup's drafts, postponed and scheduled mail",
+    "Mail",
+    "Space  scroll the message, at its end the next one",
+    "R A d  mark read or not, all read, for deletion",
+    "<  mark the R ones read and delete the D ones",
+    "r f s h *  kastrup's keys for one message",
+    "Agenda and Tasks",
+    "y  copy as tock:<id> or todo:<n>, with its text",
+    "x  tick a task done or back",
+    "d <  mark a task for deletion; delete the marked",
+    "e  open the task list in scribe at that line",
+    "Anywhere at Home",
+    "^S  ideas from Claude     ^Z  Claude on the whole screen",
+    "^A  back to the last tab  ^O  the next tab",
+    "^L  draw it all again     Q   quit",
+];
+
+/// One line of HELP: a heading in bold, a key in green and the rest grey.
+fn help_row(l: &str) -> String {
+    match l.split_once("  ") {
+        _ if l.is_empty() => String::new(),
+        None => style::bold(&style::fg(l, 255)),
+        Some((k, rest)) => format!(" {} {}", style::fg(&format!("{k:<10}"), 156), style::fg(rest, 250)),
+    }
+}
+
+/// A line of todo.hl as a number, so a tag stays with its text.
+fn line_key(l: &str) -> i64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    l.hash(&mut h);
+    h.finish() as i64
 }
 
 /// The keys of the views in ~/.gluon/views, as "1 2 4"; 1, 2 and 3 when
@@ -1698,7 +1796,9 @@ fn main() {
         println!("            (Esc comes back), and kastrup's keys act on a picked message;");
         println!("            one you browse is marked read (R undoes it, A marks all), d");
         println!("            marks it for deletion, and < does both. Ctrl+S asks Claude for");
-        println!("            ideas: tasks to add, events and answers; Enter does the picked one");
+        println!("            ideas: tasks to add, events and answers; Enter does the picked one.");
+        println!("            t tags rows in any box, and Esc hands every tagged row to Claude;");
+        println!("            ? shows all the keys at Home");
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
         println!("  Calendar  tock, with its own keys and ~/.tock/");
         println!("  Tasks     ~/.tasks/todo.hl in scribe, or as a board (Ctrl+B switches)");
@@ -1838,6 +1938,13 @@ fn main() {
                         }
                     }
                     _ if k == "C-S" => home.ask(&mail, &cal, &mut claude),
+                    // Home and Claude drawn again from the start.
+                    _ if k == "C-L" => {
+                        home.repaint(&mail, &cal, &mut claude);
+                        if let Some(c) = claude.app() {
+                            c.after_wait(key);
+                        }
+                    }
                     _ if k == "C-Z" => {
                         if claude.app().is_some() {
                             home.full = !home.full;
@@ -1860,11 +1967,16 @@ fn main() {
                                 unseen.run(|| cal.after_wait(None));
                                 home.minute = 0;
                             }
-                            Some(Act::Context(b, id, start)) => {
-                                let text = home.item(b, id, start, &mail, &cal);
-                                let what = ["kastrup", "tock", "tasks"][b];
+                            Some(Act::Context(items)) => {
+                                let text: Vec<String> = items.iter()
+                                    .map(|&(b, id, start)| home.item(b, id, start, &mail, &cal))
+                                    .filter(|t| !t.is_empty())
+                                    .collect();
+                                let mut what: Vec<&str> = items.iter().map(|i| ["kastrup", "tock", "tasks"][i.0]).collect();
+                                what.dedup();
+                                let head = if items.len() == 1 { "this was picked" } else { "these were tagged" };
                                 if let (Some(c), false) = (claude.app(), text.is_empty()) {
-                                    c.attach(what, &format!("At gluon's Home this was picked:\n\n{text}"));
+                                    c.attach(&what.join(" + "), &format!("At gluon's Home {head}:\n\n{}", text.join("\n")));
                                 }
                             }
                             Some(Act::Copy(b, id, start)) => {
@@ -1993,6 +2105,27 @@ mod tests {
     use super::*;
 
     const TODO: &str = "\tInbox\n\tHome\n\t\tPaint\n\t\t[O] Bike\n\t\t\tChain\n\t\t[x] Milk\n\tWork\n\t\t[-] Ask\n";
+
+    #[test]
+    fn a_tag_stays_with_its_line_and_goes_to_claude_once() {
+        let rows = |ls: &[&str]| ls.iter().enumerate().map(|(i, l)| (Some((i as i64 + 1, line_key(l))), l.to_string())).collect::<Vec<_>>();
+        let mut f = Frame::new("");
+        f.place(1, 1, 40, 10);
+        f.set_rows(rows(&["a", "b", "c"]));
+        f.step(1);
+        f.tag();
+        f.tag();
+        // A line comes in above b and c, so their tags go, not to a and b.
+        f.set_rows(rows(&["new", "a", "b", "c"]));
+        assert!(f.tags.is_empty());
+        f.set_rows(rows(&["a", "b", "c"]));
+        f.sel = 0;
+        f.tag();
+        f.step(1);
+        f.tag();
+        assert_eq!(f.take_tags(), vec![(1, line_key("a")), (3, line_key("c"))]);
+        assert!(f.take_tags().is_empty());
+    }
 
     #[test]
     fn lanes_are_the_top_lines_and_cards_the_lines_under_them() {

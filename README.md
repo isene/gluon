@@ -27,9 +27,9 @@ Home has four parts, three boxes over Claude:
   calendar and tasks are. **Ctrl+Z** gives it the whole screen and back.
 
 **Tab** moves the keys from box to box and on to Claude (**Shift+Tab**
-goes back, **Esc** jumps to Claude). In a box, the arrows pick a row (j
-and k too, in the agenda and the tasks), and the box's keys show in its
-bottom edge:
+goes back, **Esc** jumps to Claude). In a box, the arrows or j and k pick
+a row, the box's keys show in its bottom edge, and `?` shows all the keys
+at Home:
 - Mail: the picked message shows on the right, in place of the agenda
   and the tasks, and stays unread; Space scrolls it and, at its end, goes
   on to the next message. Shift+Left scrolls back, and Shift+Down and
@@ -50,9 +50,11 @@ bottom edge:
   lines under it, and `<` deletes the marked lines. y copies the line as
   `todo:<n>` with its text.
 
-When the keys go from a box to Claude (Esc or Tab), Claude gets the
-item that was picked there with your next prompt: the message, the event
-or the task, so you can ask about it right away.
+t tags the picked row in any box, on a dark grey, and t again takes the
+tag off. When the keys go from a box to Claude (Esc or Tab), Claude gets
+every tagged row of all three boxes with your next prompt, or else the row
+picked in that box: two messages, an event and three tasks, say, to talk
+about together. The tags go with them.
 
 **Ctrl+S** at Home asks Claude what to do about the unread mail, the
 agenda and the tasks. Its ideas show on the right, in place of the agenda
@@ -91,8 +93,9 @@ Claude Code starts with gluon; an idle one takes about 33 mW, more than
 the rest of gluon. The session's id stays in
 `~/.gluon/session`, so the next start picks up the same conversation, and
 `~/.gluon/CLAUDE.md` tells it where your mail, calendar and tasks are.
+
 `Q` ends gluon from any tab, except while Claude or scribe has the keys;
-in Claude, C-D ends it. kastrup and tock no longer quit on `q` inside gluon. At
+in Claude, C-D ends it. Ctrl+L draws Home and Claude again. kastrup and tock no longer quit on `q` inside gluon. At
 Home, C-T shows the tool calls in full.
 
 With [cc-sessions](https://github.com/isene/CC-sessions), gluon bookmarks
