@@ -47,17 +47,19 @@ answer, which shows a box when it is done.
 Home draws again only when something changed: the mail database, the
 minute, or the task file.
 
-Claude Code starts at the first letter you type at Home, since an idle
-one takes more power than the rest of gluon. The session's id stays in
+Claude Code starts with gluon; an idle one takes about 33 mW, more than
+the rest of gluon. The session's id stays in
 `~/.gluon/session`, so the next start picks up the same conversation, and
 `~/.gluon/CLAUDE.md` tells it where your mail, calendar and tasks are.
-At Home, C-D ends gluon, and C-T shows the tool calls in full.
+`Q` ends gluon from any tab, except while Claude has the keys; there
+C-D ends it. kastrup and tock no longer quit on `q` inside gluon. At
+Home, C-T shows the tool calls in full.
 
 With [cc-sessions](https://github.com/isene/CC-sessions), gluon bookmarks
 the session as #gluon, so `cc gluon` and fleet find it.
 
 In the Tasks tab, `j`/`k` scroll, `e` or Enter opens the list in your
-editor (`$EDITOR`, or scribe when it is not set), and `q` ends gluon.
+editor (`$EDITOR`, or scribe when it is not set).
 
 Run gluon instead of kastrup and tock, not beside them: tock's calendar
 opens to one program at a time, and two kastrups would both poll the same

@@ -118,7 +118,6 @@ struct Tasks {
     body: Pane,
     bottom: Pane,
     path: PathBuf,
-    quit: bool,
 }
 
 impl Tasks {
@@ -128,7 +127,6 @@ impl Tasks {
             body: Pane::new(1, 2, 1, 1, 255, 0),
             bottom: Pane::new(1, 3, 1, 1, 252, 236),
             path: home.join(".tasks").join("todo.hl"),
-            quit: false,
         };
         t.layout();
         t
@@ -159,7 +157,7 @@ impl Tasks {
         self.load();
         self.top.say(&tab_line(TASKS));
         self.body.full_refresh();
-        self.bottom.say(&style::fg(" j/k scroll  e edit  Ctrl+O next tab  Ctrl+A Home  q quit", 245));
+        self.bottom.say(&style::fg(" j/k scroll  e edit  Ctrl+O next tab  Ctrl+A Home  Q quit", 245));
     }
 
     /// For Claude: which file is on screen, and from where.
@@ -184,7 +182,6 @@ impl Tasks {
             "g" | "HOME" => { self.body.top(); }
             "G" | "END" => { self.body.bottom(); }
             "e" | "ENTER" => { self.edit(); }
-            "q" => { self.quit = true; }
             "RESIZE" => { self.repaint(); }
             _ => {}
         }
@@ -265,10 +262,9 @@ fn bookmark(home: &Path, dir: &Path, id: &str) {
     }
 }
 
-/// Claude, started at the first key in the Home tab or at Ctrl+A: an
-/// idle Claude Code process takes about 33 mW, more than the rest of gluon.
+/// Claude, started with gluon. An idle Claude Code process takes about
+/// 33 mW, more than the rest of gluon.
 enum Claude {
-    Off,
     On(deck::app::App),
     Failed(String),
 }
@@ -281,15 +277,13 @@ impl Claude {
         }
     }
 
-    fn open(&mut self, home: &Path) {
-        if let Claude::Off = self {
-            *self = match start_claude(home) {
-                Ok(a) => {
-                    Crust::set_app_identity("gluon");
-                    Claude::On(a)
-                }
-                Err(e) => Claude::Failed(e),
-            };
+    fn start(home: &Path) -> Claude {
+        match start_claude(home) {
+            Ok(a) => {
+                Crust::set_app_identity("gluon");
+                Claude::On(a)
+            }
+            Err(e) => Claude::Failed(e),
         }
     }
 
@@ -560,13 +554,13 @@ impl Home {
         }
     }
 
-    /// Claude's rows before it has started, or after it failed to.
+    /// Claude's rows when it could not start.
     fn claude_off(&self, claude: &Claude) {
         let (top, rows) = Self::split();
         let (cols, _) = Crust::terminal_size();
         let why = match claude {
             Claude::Failed(e) => format!("Claude could not start: {e}"),
-            _ => "Type to talk to Claude; it starts at the first key.".into(),
+            _ => String::new(),
         };
         Pane::new(1, top + 1, cols, 1, 255, 236).say(&claude_label(self.focus == CLAUDE));
         Pane::new(2, top + 3, cols.saturating_sub(2), rows.saturating_sub(2), 245, 0).say(&why);
@@ -617,8 +611,8 @@ impl Home {
                         let one = k.chars().count() == 1;
                         return match (self.focus, k) {
                             (BOX_MAIL, "ENTER") => Some(Act::Mail(id, None)),
-                            // q would end gluon, and a digit would leave
-                            // the message for another view.
+                            // q does nothing there, and a digit would
+                            // leave the message for another view.
                             (BOX_MAIL, _) if one && k != "q" && !k.starts_with(|c: char| c.is_ascii_digit()) => {
                                 Some(Act::Mail(id, Some(k.into())))
                             }
@@ -823,8 +817,8 @@ fn main() {
         println!();
         println!("Claude is deck: one Claude Code session that stays, in ~/.gluon/. Ctrl+Z");
         println!("gives it the whole screen and back. Ctrl+O moves to the next tab. Ctrl+A");
-        println!("jumps Home with what is on screen, and back. q in Mail, Calendar or");
-        println!("Tasks, or C-D at Home, ends gluon.");
+        println!("jumps Home with what is on screen, and back. Q ends gluon, except");
+        println!("while Claude has the keys; there C-D ends it.");
         return;
     }
     if arg == "-v" || arg == "--version" {
@@ -841,7 +835,7 @@ fn main() {
         tock::app::finish(cal);
         return;
     };
-    let mut claude = Claude::Off;
+    let mut claude = Claude::start(&dir);
     Crust::set_app_identity("gluon");
     mail.set_tab_line(Some(tab_line(MAIL)));
     cal.set_tab_line(Some(tab_line(CALENDAR)));
@@ -856,7 +850,7 @@ fn main() {
     let mut size = Crust::terminal_size();
     home.repaint(&mail, &cal, &mut claude);
 
-    while mail.running() && cal.running() && !tasks.quit && claude.running() {
+    while mail.running() && cal.running() && claude.running() {
         // Claude's 1 s clock while it works is for its own bar alone.
         let mut wait = match tab {
             MAIL => mail.before_wait().min(unseen.run(|| cal.before_wait())),
@@ -868,8 +862,19 @@ fn main() {
         }
         let key = Input::getchr(Some(wait));
         let mut act = None;
+        // While Claude has the keys, Q is a letter for it.
+        let to_claude = tab == HOME && (home.full || home.focus == CLAUDE) && matches!(claude, Claude::On(_));
         let mut next = match key.as_deref() {
             Some("C-O") => Some((tab + 1) % TABS.len()),
+            // Q ends gluon. kastrup waits for a send in flight and says so
+            // in the Mail tab.
+            Some("Q") if !to_claude => {
+                if tab == MAIL { mail.quit() } else { unseen.run(|| mail.quit()) }
+                if !mail.running() || tab == MAIL {
+                    continue;
+                }
+                Some(MAIL)
+            }
             Some("C-A") if tab == HOME => Some(back),
             Some("C-A") => {
                 let seen = match tab {
@@ -877,7 +882,6 @@ fn main() {
                     CALENDAR => Some(("tock", cal.claude_context())),
                     _ => Some(("tasks", tasks.claude_context())),
                 };
-                claude.open(&dir);
                 if let (Some(c), Some((what, text))) = (claude.app(), seen) {
                     unseen.run(|| c.attach(what, &text));
                 }
@@ -936,13 +940,11 @@ fn main() {
                     CALENDAR => cal.after_wait(key),
                     TASKS => tasks.key(k),
                     _ if k == "C-Z" => {
-                        claude.open(&dir);
                         if claude.app().is_some() {
                             home.full = !home.full;
                         }
                         home.repaint(&mail, &cal, &mut claude);
                     }
-                    _ if k == "C-D" && claude.app().is_none() => break,
                     // A box at Home has the keys, or Tab moves them on.
                     _ if !home.full && (home.focus != CLAUDE || k == "TAB" || k == "S-TAB") => {
                         match home.key(k, &mut claude) {
@@ -955,13 +957,7 @@ fn main() {
                             None => {}
                         }
                     }
-                    // A typed letter starts Claude; Esc or an arrow does not.
-                    _ if k.chars().nth(1).is_some() && matches!(claude, Claude::Off) => {}
                     _ => {
-                        if let Claude::Off = claude {
-                            claude.open(&dir);
-                            home.repaint(&mail, &cal, &mut claude);
-                        }
                         if let Some(c) = claude.app() {
                             c.after_wait(key);
                         }
