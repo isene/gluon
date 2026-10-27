@@ -1,7 +1,8 @@
 //! gluon: mail, calendar, tasks and Claude in one terminal app. The Home
 //! tab shows unread mail, the agenda and the tasks over a Claude pane
 //! (deck); the Mail tab is kastrup and the Calendar tab is tock, all run
-//! as libraries; the Tasks tab shows ~/.tasks/todo.hl. Ctrl+O moves to
+//! as libraries; the Tasks tab is scribe on ~/.tasks/todo.hl, or the
+//! same file as a board. Ctrl+O moves to
 //! the next tab, and Ctrl+A jumps Home and back.
 
 use crust::{style, Crust, Cursor, Input, Pane};
@@ -113,14 +114,16 @@ impl Unseen {
     }
 }
 
-/// The Tasks tab: the todo file, coloured as HyperList, or as a board (b
-/// switches), edited in the editor (scribe unless $EDITOR names another).
+/// The Tasks tab: scribe on the todo file, or the file as a board
+/// (Ctrl+B switches).
 struct Tasks {
     top: Pane,
     body: Pane,
     bottom: Pane,
     path: PathBuf,
     board: bool,
+    /// scribe, opened the first time the tab shows it.
+    ed: Option<scribe::App>,
     lanes: Vec<Lane>,
     /// The picked place on the board: lane, column and card in that cell.
     pick: (usize, usize, usize),
@@ -257,6 +260,7 @@ impl Tasks {
             bottom: Pane::new(1, 3, 1, 1, 252, 236),
             path: home.join(".tasks").join("todo.hl"),
             board: false,
+            ed: None,
             lanes: Vec::new(),
             pick: (0, 0, 0),
         };
@@ -272,32 +276,50 @@ impl Tasks {
         self.bottom = Pane::new(1, rows, cols, 1, 252, 236);
     }
 
-    fn load(&mut self) {
-        let text = std::fs::read_to_string(&self.path)
-            .unwrap_or_else(|_| format!("No tasks yet: {} does not exist. Press e to start it.", self.path.display()));
-        let ix = self.body.ix;
-        // The highlighter reads the indent from the tabs; on screen a
-        // level is three columns, as in scribe, not crust's eight.
-        let coloured = highlight::highlight_hyperlist(&text, usize::MAX).replace('\t', "   ");
-        self.body.set_text(&coloured);
-        self.body.ix = ix;
+    /// scribe on the task list, at `line` (0 leaves the cursor where it
+    /// was, or where scribe's session has it).
+    fn editor(&mut self, line: usize) -> &mut scribe::App {
+        if self.ed.is_none() {
+            if let Some(dir) = self.path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let mut ed = scribe::App::open(self.path.clone(), line);
+            ed.set_tab_line(Some(tab_line(TASKS) + &style::fg("^B board ", 240)));
+            self.ed = Some(ed);
+        }
+        let ed = self.ed.as_mut().expect("opened above");
+        ed.goto_line(line);
+        ed
+    }
+
+    /// scribe at `line`, in view.
+    fn edit_at(&mut self, line: usize) {
+        self.board = false;
+        self.editor(line);
+        self.repaint();
+    }
+
+    /// Unsaved text is written when the tab goes out of view, so the board
+    /// and Home show it.
+    fn leave(&mut self) {
+        if let (false, Some(ed)) = (self.board, self.ed.as_mut()) {
+            ed.save_if_dirty();
+        }
     }
 
     fn repaint(&mut self) {
+        if !self.board {
+            self.editor(0).repaint();
+            return;
+        }
         Crust::clear_screen();
         self.layout();
         self.top.say(&tab_line(TASKS));
-        if self.board {
-            self.draw_board();
-            self.bottom.say(&style::fg(
-                " arrows pick  S-←→ column  S-↑↓ section  e edit  b list  Ctrl+O next tab  Ctrl+A Home  Q quit",
-                245,
-            ));
-            return;
-        }
-        self.load();
-        self.body.full_refresh();
-        self.bottom.say(&style::fg(" j/k scroll  e edit  b board  Ctrl+O next tab  Ctrl+A Home  Q quit", 245));
+        self.draw_board();
+        self.bottom.say(&style::fg(
+            " arrows pick  S-←→ column  S-↑↓ section  e edit  ^B scribe  Ctrl+O next tab  Ctrl+A Home  Q quit",
+            245,
+        ));
     }
 
     /// The lanes over each other, the columns side by side, and the
@@ -409,13 +431,7 @@ impl Tasks {
             }
             "e" | "ENTER" => {
                 let line = self.picked().map(|x| x.line).or(self.lanes.get(l).map(|x| x.line)).unwrap_or(0);
-                edit(&self.path, line as i64 + 1);
-                self.repaint();
-                return;
-            }
-            "b" => {
-                self.board = false;
-                self.repaint();
+                self.edit_at(line + 1);
                 return;
             }
             "RESIZE" => {
@@ -437,55 +453,43 @@ impl Tasks {
                 self.path.display()
             );
         }
+        let line = self.ed.as_ref().map_or(1, |e| e.line());
         format!(
-            "The task list {} is on screen, from line {}. It is HyperList.",
-            self.path.display(), self.body.ix + 1
+            "The task list {} is open in scribe, the cursor on line {line}. It is HyperList.",
+            self.path.display()
         )
     }
 
-    fn edit(&mut self) {
-        edit(&self.path, self.body.ix as i64 + 1);
-        self.repaint();
-    }
-
-    fn key(&mut self, key: &str) {
-        if self.board {
-            self.board_key(key);
-            return;
-        }
-        match key {
-            "b" => {
+    /// A key for the tab. True when scribe was quit, so the tab is done.
+    fn key(&mut self, key: &str) -> bool {
+        if key == "C-B" {
+            if self.board {
+                self.board = false;
+            } else if self.editor(0).save_if_dirty() {
+                // A failed write leaves scribe in view, saying why.
                 self.board = true;
                 self.lanes = lanes_of(&std::fs::read_to_string(&self.path).unwrap_or_default());
                 if self.picked().is_none() {
                     let first = self.lanes.iter().enumerate().find_map(|(l, lane)| lane.cards.first().map(|x| (l, x.col)));
                     self.pick = first.map_or((0, 0, 0), |(l, c)| (l, c, 0));
                 }
-                self.repaint();
             }
-            "j" | "DOWN" => { self.body.linedown(); }
-            "k" | "UP" => { self.body.lineup(); }
-            " " | "PgDOWN" => { self.body.pagedown(); }
-            "PgUP" => { self.body.pageup(); }
-            "g" | "HOME" => { self.body.top(); }
-            "G" | "END" => { self.body.bottom(); }
-            "e" | "ENTER" => { self.edit(); }
-            "RESIZE" => { self.repaint(); }
-            _ => {}
+            self.repaint();
+            return false;
         }
+        if self.board {
+            self.board_key(key);
+            return false;
+        }
+        let ed = self.editor(0);
+        ed.after_wait(Some(key.into()));
+        if ed.running() {
+            return false;
+        }
+        ed.close();
+        self.ed = None;
+        true
     }
-}
-
-/// The task list in the editor (scribe unless $EDITOR names another), at
-/// `line`.
-fn edit(path: &Path, line: i64) {
-    let editor = std::env::var("EDITOR").ok().filter(|e| !e.is_empty())
-        .unwrap_or_else(|| "scribe".to_string());
-    if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
-    Crust::cleanup();
-    let _ = std::process::Command::new(&editor).arg(format!("+{line}")).arg(path).status();
-    Crust::init();
-    Crust::set_app_identity("gluon");
 }
 
 /// Claude: deck in ~/.gluon, the same session each time (its id
@@ -998,7 +1002,10 @@ impl Home {
             self.minute = now / 60;
             self.load_agenda(cal);
             let cols = self.bar.w as usize;
-            let right = style::fg(&format!("Tab next box · ^Z Claude full · {} ", clock(now, "%a %e %b · week %V")), 245);
+            let right = style::fg(
+                &format!("gluon {} · Tab next box · ^Z Claude full · {} ", env!("CARGO_PKG_VERSION"), clock(now, "%a %e %b · week %V")),
+                245,
+            );
             let left = tab_line(HOME);
             let room = cols.saturating_sub(crust::display_width(&left) + crust::display_width(&right));
             drew |= show(&mut self.bar, format!("{left}{}{right}", " ".repeat(room)), force);
@@ -1175,7 +1182,7 @@ fn main() {
         println!("            marks it for deletion, and < does both");
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
         println!("  Calendar  tock, with its own keys and ~/.tock/");
-        println!("  Tasks     ~/.tasks/todo.hl as HyperList, or as a board (b); e edits it");
+        println!("  Tasks     ~/.tasks/todo.hl in scribe, or as a board (Ctrl+B switches)");
         println!();
         println!("Claude is deck: one Claude Code session that stays, in ~/.gluon/. Ctrl+Z");
         println!("gives it the whole screen and back. Ctrl+O moves to the next tab. Ctrl+A");
@@ -1222,15 +1229,20 @@ fn main() {
         if let (HOME, Claude::On(c)) = (tab, &claude) {
             wait = wait.min(c.before_wait());
         }
+        // scribe wakes only to write unsaved text to its recovery file.
+        if let Some(w) = tasks.ed.as_ref().and_then(|e| e.before_wait()) {
+            wait = wait.min(w);
+        }
         let key = Input::getchr(Some(wait));
         let mut act = None;
-        // While Claude has the keys, Q is a letter for it.
+        // While Claude or scribe has the keys, Q and Esc are theirs.
         let to_claude = tab == HOME && (home.full || home.focus == CLAUDE) && matches!(claude, Claude::On(_));
+        let typing = to_claude || (tab == TASKS && !tasks.board);
         let mut next = match key.as_deref() {
             Some("C-O") => Some((tab + 1) % TABS.len()),
             // Q ends gluon. kastrup waits for a send in flight and says so
             // in the Mail tab.
-            Some("Q") if !to_claude => {
+            Some("Q") if !typing => {
                 if tab == MAIL { mail.quit() } else { unseen.run(|| mail.quit()) }
                 if !mail.running() || tab == MAIL {
                     continue;
@@ -1251,7 +1263,7 @@ fn main() {
             }
             // Esc in the tab a box at Home opened goes back Home; kastrup
             // takes it first, to drop the one-message list.
-            Some("ESC") if from_home && tab != HOME => {
+            Some("ESC") if from_home && tab != HOME && !typing => {
                 if tab == MAIL {
                     unseen.run(|| mail.leave_message());
                 }
@@ -1281,7 +1293,9 @@ fn main() {
                                 match tab {
                                     MAIL => mail.after_wait(key),
                                     CALENDAR => cal.after_wait(key),
-                                    _ => tasks.key("RESIZE"),
+                                    _ => {
+                                        tasks.key("RESIZE");
+                                    }
                                 }
                             }
                             if let Some(c) = claude.app() {
@@ -1299,7 +1313,11 @@ fn main() {
                 Some(k) => match tab {
                     MAIL => mail.after_wait(key),
                     CALENDAR => cal.after_wait(key),
-                    TASKS => tasks.key(k),
+                    TASKS => {
+                        if tasks.key(k) {
+                            next = Some(HOME);
+                        }
+                    }
                     _ if k == "C-Z" => {
                         if claude.app().is_some() {
                             home.full = !home.full;
@@ -1309,10 +1327,7 @@ fn main() {
                     // A box at Home has the keys, or Tab moves them on.
                     _ if !home.full && (home.focus != CLAUDE || k == "TAB" || k == "S-TAB") => {
                         match home.key(k, &mut claude) {
-                            Some(Act::Edit(line)) => {
-                                edit(&home.todo, line);
-                                home.repaint(&mail, &cal, &mut claude);
-                            }
+                            Some(a @ Act::Edit(..)) => (act, next) = (Some(a), Some(TASKS)),
                             Some(a @ Act::Mail(..)) => (act, next) = (Some(a), Some(MAIL)),
                             Some(a @ Act::Event(..)) => (act, next) = (Some(a), Some(CALENDAR)),
                             Some(Act::Purge(read, del)) => unseen.run(|| mail.read_and_delete(read, del)),
@@ -1334,10 +1349,16 @@ fn main() {
                     if let (HOME, Some(c)) = (tab, claude.app()) {
                         c.after_wait(None);
                     }
+                    if let Some(e) = tasks.ed.as_mut().filter(|e| e.before_wait().is_some()) {
+                        if tab == TASKS && !tasks.board { e.after_wait(None) } else { unseen.run(|| e.after_wait(None)) }
+                    }
                 }
             }
         }
         if let Some(n) = next {
+            if tab == TASKS {
+                tasks.leave();
+            }
             if n == HOME {
                 back = tab;
             }
@@ -1374,7 +1395,10 @@ fn main() {
                     }
                     cal.repaint();
                 }
-                TASKS => tasks.repaint(),
+                TASKS => match act {
+                    Some(Act::Edit(line)) => tasks.edit_at(line as usize),
+                    _ => tasks.repaint(),
+                },
                 _ => home.repaint(&mail, &cal, &mut claude),
             }
             continue;
@@ -1391,6 +1415,12 @@ fn main() {
         }
     }
 
+    // A failed write keeps the recovery file.
+    if let Some(mut e) = tasks.ed.take() {
+        if e.save_if_dirty() {
+            e.close();
+        }
+    }
     if let Claude::On(c) = claude {
         keep(&dir, c.session_id());
         deck::app::finish(c);

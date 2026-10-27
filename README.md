@@ -4,7 +4,8 @@ Mail, calendar, tasks and Claude in one terminal app, part of the
 [Fe₂O₃ suite](https://isene.org/fe2o3/).
 
 gluon runs [kastrup](https://github.com/isene/kastrup),
-[tock](https://github.com/isene/tock) and
+[tock](https://github.com/isene/tock),
+[scribe](https://github.com/isene/scribe) and
 [deck](https://github.com/isene/deck) (a front for Claude Code) as
 parts of one screen, so every key you know from them works the same here.
 
@@ -13,7 +14,7 @@ parts of one screen, so every key you know from them works the same here.
 | Home | unread mail, the agenda and the tasks, over a Claude pane | `~/.gluon/` |
 | Mail | kastrup: email, RSS and chat | `~/.kastrup/` |
 | Calendar | tock: calendar with ephemeris | `~/.tock/` |
-| Tasks | your task list, coloured as HyperList | `~/.tasks/todo.hl` |
+| Tasks | scribe on your task list, or the list as a board | `~/.tasks/todo.hl` |
 
 Home has four parts, three boxes over Claude:
 - top left, the unread mail in kastrup's views 1, 2 and 3, newest first,
@@ -43,10 +44,11 @@ bottom edge:
   tab to show their answer. Each row has the colour and icon of its kind,
   as in kastrup.
 - Agenda: Enter opens the event in the Calendar tab.
-- Tasks: Enter opens the task list in your editor at that line, and x
-  ticks the task done (`[x]`) or back.
+- Tasks: Enter opens the task list in scribe at that line, and x ticks
+  the task done (`[x]`) or back.
 
-Esc in the tab a box opened brings you back Home.
+Esc in the tab a box opened brings you back Home; in scribe, Esc is
+scribe's, and Ctrl+A goes Home.
 
 **Ctrl+O** moves to the next tab. **Ctrl+A** jumps Home and back, to the
 box that had the keys; Claude gets what the tab you came from had on screen (the message, the week, the
@@ -61,17 +63,18 @@ Claude Code starts with gluon; an idle one takes about 33 mW, more than
 the rest of gluon. The session's id stays in
 `~/.gluon/session`, so the next start picks up the same conversation, and
 `~/.gluon/CLAUDE.md` tells it where your mail, calendar and tasks are.
-`Q` ends gluon from any tab, except while Claude has the keys; there
-C-D ends it. kastrup and tock no longer quit on `q` inside gluon. At
+`Q` ends gluon from any tab, except while Claude or scribe has the keys;
+in Claude, C-D ends it. kastrup and tock no longer quit on `q` inside gluon. At
 Home, C-T shows the tool calls in full.
 
 With [cc-sessions](https://github.com/isene/CC-sessions), gluon bookmarks
 the session as #gluon, so `cc gluon` and fleet find it.
 
-In the Tasks tab, `j`/`k` scroll, `e` or Enter opens the list in your
-editor (`$EDITOR`, or scribe when it is not set).
+The Tasks tab is scribe on the task list, with all of scribe's keys but
+Ctrl+O, Ctrl+A and Ctrl+B, which stay gluon's. Unsaved text is written
+when the tab goes out of view, and `:q` goes Home.
 
-`b` shows the list as a board, and `b` again goes back. The lines at the
+Ctrl+B shows the list as a board, and Ctrl+B again goes back to scribe. The lines at the
 top level are the lanes (Inbox, Work, ...), and the tasks under them are
 cards in four columns. The box in front of a task in todo.hl says its
 column:
@@ -86,7 +89,7 @@ column:
 The arrows pick a card. Shift+Left and Shift+Right (or H and L) move it a
 column, which rewrites its box. Shift+Up and Shift+Down (or K and J) move
 it to the end of the lane above or below, with the lines under it. `e`
-edits the file at the picked card.
+opens scribe at the picked card.
 
 Run gluon instead of kastrup and tock, not beside them: tock's calendar
 opens to one program at a time, and two kastrups would both poll the same
@@ -101,7 +104,7 @@ sources.
 
 ```bash
 git clone https://github.com/isene/gluon
-# beside it: crust, glow, highlight, mail, feed, ferrite, kastrup, tock, deck
+# beside it: crust, glow, highlight, mail, feed, ferrite, kastrup, tock, scribe, deck
 cargo build --release
 ```
 

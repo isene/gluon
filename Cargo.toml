@@ -1,6 +1,6 @@
 [package]
 name = "gluon"
-version = "0.9.2"
+version = "0.10.0"
 edition = "2021"
 authors = ["Geir Isene <g@isene.com>"]
 description = "Mail, calendar, tasks and Claude in one terminal app: kastrup, tock and deck as tabs, built on crust."
@@ -16,6 +16,8 @@ kastrup = { path = "../kastrup" }
 tock = { path = "../tock" }
 # The Claude tab is deck.
 deck = { path = "../deck" }
+# The Tasks tab is scribe, with the board beside it.
+scribe = { path = "../scribe" }
 libc = "0.2"
 # To tag the Claude tab's session #gluon in cc-sessions' bookmarks,
 # whose order is its picker's order.
