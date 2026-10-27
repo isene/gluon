@@ -31,15 +31,17 @@ and k too, in the agenda and the tasks), and the box's keys show in its
 bottom edge:
 - Mail: the picked message shows on the right, in place of the agenda
   and the tasks, and stays unread; Space scrolls it, Shift+Left goes back.
-  Enter opens it in the Mail tab. kastrup's own keys work too: r replies,
-  f forwards, and so on, on the picked message.
+  Enter opens it in the Mail tab. R marks it read and d marks it for
+  deletion; both stay in the box until `<` marks them read in kastrup and
+  deletes the others. kastrup's other keys work too: r replies, f
+  forwards, and so on, on the picked message.
 - Agenda: Enter opens the event in the Calendar tab.
 - Tasks: Enter opens the task list in your editor at that line.
 
 Esc in the tab a box opened brings you back Home.
 
-**Ctrl+O** moves to the next tab. **Ctrl+A** jumps Home and back; Claude
-gets what the tab you came from had on screen (the message, the week, the
+**Ctrl+O** moves to the next tab. **Ctrl+A** jumps Home and back, to the
+box that had the keys; Claude gets what the tab you came from had on screen (the message, the week, the
 task list) with your next prompt. A tab out of view goes on fetching
 mail, sending scheduled messages, ringing alarms and taking Claude's
 answer, which shows a box when it is done.

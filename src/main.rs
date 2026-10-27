@@ -5,6 +5,7 @@
 //! the next tab, and Ctrl+A jumps Home and back.
 
 use crust::{style, Crust, Cursor, Input, Pane};
+use std::collections::HashSet;
 use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -448,6 +449,8 @@ impl Frame {
 enum Act {
     /// Message `id` opened in the Mail tab, then the key, if any, for it.
     Mail(i64, Option<String>),
+    /// Messages for kastrup to mark read, and to delete.
+    Purge(Vec<i64>, Vec<i64>),
     /// The Calendar on an event, by its id and start.
     Event(i64, i64),
     /// The task list in the editor, at a line.
@@ -471,6 +474,12 @@ struct Home {
     preview: Frame,
     shown: Option<i64>,
     previewing: bool,
+    /// Messages marked read (R) or for deletion (d) in the mail box; they
+    /// stay there until <. Then they are purged, and kept out of the box
+    /// until kastrup's writer has caught up.
+    marked_read: HashSet<i64>,
+    marked_del: HashSet<i64>,
+    purged: HashSet<i64>,
     /// The box with the keys, or CLAUDE.
     focus: usize,
     /// The keys of the views to show, as "1 2 3", in ~/.gluon/views.
@@ -489,13 +498,16 @@ impl Home {
         let mut h = Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
-                Frame::new(" Enter opens · r replies · Space scrolls, S-← back · Esc Claude "),
+                Frame::new(" Enter opens · R read · d delete · < clears · Space scrolls "),
                 Frame::new(" Enter opens it in Calendar · Esc Claude "),
                 Frame::new(" Enter edits at this line · Esc Claude "),
             ],
             preview: Frame::new(""),
             shown: None,
             previewing: false,
+            marked_read: HashSet::new(),
+            marked_del: HashSet::new(),
+            purged: HashSet::new(),
             focus: CLAUDE,
             views: home.join(".gluon").join("views"),
             todo: home.join(".tasks").join("todo.hl"),
@@ -606,6 +618,25 @@ impl Home {
                     "G" if vi => b.step(all),
                     " " | "S-RIGHT" if !vi => self.preview.pane.pagedown(),
                     "S-LEFT" if !vi => self.preview.pane.pageup(),
+                    // As in kastrup: d moves on to the next message.
+                    "R" | "d" if !vi => {
+                        let (id, _) = b.picked()?;
+                        let set = if k == "R" { &mut self.marked_read } else { &mut self.marked_del };
+                        if !set.remove(&id) {
+                            set.insert(id);
+                        }
+                        if k == "d" {
+                            b.step(1);
+                        }
+                        self.sig = None;
+                    }
+                    "<" if !vi => {
+                        let del: Vec<i64> = self.marked_del.drain().collect();
+                        let read: Vec<i64> = self.marked_read.drain().filter(|i| !del.contains(i)).collect();
+                        self.purged.extend(del.iter().chain(&read));
+                        self.sig = None;
+                        return Some(Act::Purge(read, del));
+                    }
                     _ => {
                         let (id, start) = b.picked()?;
                         let one = k.chars().count() == 1;
@@ -705,7 +736,9 @@ impl Home {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
         let today = clock(now, "%F");
-        let list = mail.unread_in_views(&keys, UNREAD);
+        let mut list = mail.unread_in_views(&keys, UNREAD);
+        self.purged.retain(|id| list.iter().any(|u| u.id == *id));
+        list.retain(|u| !self.purged.contains(&u.id));
         let more = if list.len() == UNREAD { "+" } else { "" };
         let mut rows = Vec::new();
         if list.is_empty() {
@@ -713,11 +746,18 @@ impl Home {
         }
         for u in &list {
             let when = clock(u.time, if clock(u.time, "%F") == today { "%H:%M" } else { "%e %b" });
-            let light = lighter(u.colour);
+            // kastrup's colours: dark red for deletion, grey for read.
+            let (mark, light) = if self.marked_del.contains(&u.id) {
+                (style::fg("D", 88), 88)
+            } else if self.marked_read.contains(&u.id) {
+                (style::fg("R", 245), 240)
+            } else {
+                (" ".into(), lighter(u.colour))
+            };
             let from = crust::truncate_ansi(&plain(&u.from), 18);
             let pad = " ".repeat(18usize.saturating_sub(crust::display_width(&from)));
             let line = format!(
-                "{} {when:>6}  {}  {}",
+                "{}{mark}{when:>6}  {}  {}",
                 style::styled(&format!(" {} ", u.view), Some(255), Some(u.colour), ""),
                 style::fg(&(from + &pad), light),
                 style::fg(&plain(&u.subject), light),
@@ -810,7 +850,8 @@ fn main() {
         println!("  Home      boxes for the unread mail in kastrup's views 1-3 (or those in");
         println!("            ~/.gluon/views), the agenda and the tasks, and Claude below them.");
         println!("            Tab moves from box to box; Enter opens the picked item in its tab");
-        println!("            (Esc comes back), and kastrup's keys act on a picked message");
+        println!("            (Esc comes back), and kastrup's keys act on a picked message;");
+        println!("            R and d mark it read or for deletion, and < does both");
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
         println!("  Calendar  tock, with its own keys and ~/.tock/");
         println!("  Tasks     ~/.tasks/todo.hl as HyperList; e edits it");
@@ -885,7 +926,6 @@ fn main() {
                 if let (Some(c), Some((what, text))) = (claude.app(), seen) {
                     unseen.run(|| c.attach(what, &text));
                 }
-                home.focus = CLAUDE;
                 Some(HOME)
             }
             // Esc in the tab a box at Home opened goes back Home; kastrup
@@ -954,6 +994,7 @@ fn main() {
                             }
                             Some(a @ Act::Mail(..)) => (act, next) = (Some(a), Some(MAIL)),
                             Some(a @ Act::Event(..)) => (act, next) = (Some(a), Some(CALENDAR)),
+                            Some(Act::Purge(read, del)) => unseen.run(|| mail.read_and_delete(read, del)),
                             None => {}
                         }
                     }
