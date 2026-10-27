@@ -1561,9 +1561,9 @@ impl Home {
             let cols = self.bar.w as usize;
             let right = style::fg(
                 &format!(
-                    "gluon {} · Tab next box · {hint} · ^Z Claude full · {} ",
-                    env!("CARGO_PKG_VERSION"),
-                    clock(now, "%a %e %b · week %V")
+                    "{} · Tab next box · {hint} · ^Z Claude full · gluon {} ",
+                    clock(now, "%a %e %b, week %V"),
+                    env!("CARGO_PKG_VERSION")
                 ),
                 245,
             );
