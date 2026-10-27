@@ -915,14 +915,14 @@ impl Home {
                     "g" if vi => b.step(-all),
                     "G" if vi => b.step(all),
                     // At the end of the message, Space goes on to the next.
-                    " " if !vi => {
+                    " " if !vi && self.previewing => {
                         let was = self.preview.pane.ix;
                         self.preview.pane.pagedown();
                         if self.preview.pane.ix == was {
                             b.step(1);
                         }
                     }
-                    "S-RIGHT" if !vi => self.preview.pane.pagedown(),
+                    "S-RIGHT" if !vi && self.previewing => self.preview.pane.pagedown(),
                     // x ticks a task done in todo.hl, or back to do.
                     "x" if self.focus == BOX_TASKS => {
                         let (line, _) = b.picked()?;
@@ -935,7 +935,7 @@ impl Home {
                         });
                         self.mtime = None;
                     }
-                    "S-LEFT" if !vi => self.preview.pane.pageup(),
+                    "S-LEFT" if !vi && self.previewing => self.preview.pane.pageup(),
                     // As in kastrup: d moves on to the next message.
                     "R" | "d" if !vi => {
                         let (id, _) = b.picked()?;
@@ -1007,8 +1007,8 @@ impl Home {
             self.load_tasks();
         }
         // While the mail box has the keys, the picked message takes the
-        // place of the agenda and the tasks.
-        let preview = self.focus == BOX_MAIL;
+        // place of the agenda and the tasks; with no message, they stay.
+        let preview = self.focus == BOX_MAIL && self.boxes[BOX_MAIL].picked().is_some();
         if let (true, Some((id, _))) = (preview, self.boxes[BOX_MAIL].picked()) {
             if self.seen.insert(id) {
                 self.marked_read.insert(id);
