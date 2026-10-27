@@ -554,7 +554,7 @@ impl Home {
             Claude::Failed(e) => format!("Claude could not start: {e}"),
             _ => "Type to talk to Claude; it starts at the first key.".into(),
         };
-        Pane::new(1, top + 1, cols, 1, 255, 234).say(&claude_label(self.focus == CLAUDE));
+        Pane::new(1, top + 1, cols, 1, 255, 236).say(&claude_label(self.focus == CLAUDE));
         Pane::new(2, top + 3, cols.saturating_sub(2), rows.saturating_sub(2), 245, 0).say(&why);
         Cursor::hide();
     }
