@@ -44,11 +44,12 @@ at Home:
   tab to show their answer. Each row has the colour and icon of its kind,
   as in kastrup.
 - Agenda: Enter opens the event in the Calendar tab, and y copies it as
-  `tock:<id>` with its title and time.
+  `tock:<id>` with its title and time. Ctrl+Y copies all of the event.
 - Tasks: Enter opens the task list in scribe at that line, and x ticks
   the task done (`[x]`) or back. d marks a line for deletion, with the
   lines under it, and `<` deletes the marked lines. y copies the line as
-  `todo:<n>` with its text.
+  `todo:<n>` with its text, and Ctrl+Y copies the task with the lines
+  under it.
 
 t tags the picked row in any box, on a dark grey, and t again takes the
 tag off. When the keys go from a box to Claude (Esc or Tab), Claude gets

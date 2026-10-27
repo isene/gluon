@@ -1077,8 +1077,9 @@ enum Act {
     /// ones, or else the picked one, for Claude when the keys went from a
     /// box to it.
     Context(Vec<(usize, i64, i64)>),
-    /// The picked item, for the clipboard (y).
-    Copy(usize, i64, i64),
+    /// The picked item, for the clipboard: its reference (y), or all of
+    /// it (Ctrl+Y).
+    Copy(usize, i64, i64, bool),
     /// kastrup's + in the Mail tab: the drafts, postponed and scheduled
     /// messages, or a new one.
     Compose,
@@ -1144,8 +1145,8 @@ impl Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
                 Frame::new(" Enter opens · R/A read · d delete · < clears · t tags · ? keys "),
-                Frame::new(" Enter opens it in Calendar · t tags · y copies · ? keys "),
-                Frame::new(" Enter edits · x done · d/< delete · t tags · y copies · ? keys "),
+                Frame::new(" Enter opens it in Calendar · t tags · y/^Y copies · ? keys "),
+                Frame::new(" Enter edits · x done · d/< delete · t tags · y/^Y copies · ? keys "),
             ],
             preview: Frame::new(""),
             shown: None,
@@ -1420,9 +1421,9 @@ impl Home {
                     "g" if vi => b.step(-all),
                     "G" if vi => b.step(all),
                     // In the mail box, y is kastrup's.
-                    "y" if vi => {
+                    "y" | "C-Y" if vi => {
                         let (id, start) = b.picked()?;
-                        return Some(Act::Copy(self.focus, id, start));
+                        return Some(Act::Copy(self.focus, id, start, k == "C-Y"));
                     }
                     // At the end of the message, Space goes on to the next.
                     " " if !vi && self.previewing => {
@@ -1725,6 +1726,7 @@ const HELP: &[&str] = &[
     "r f s h *  kastrup's keys for one message",
     "Agenda and Tasks",
     "y  copy as tock:<id> or todo:<n>, with its text",
+    "^Y  copy all of the event, or the task with the lines under it",
     "x  tick a task done or back",
     "d <  mark a task for deletion; delete the marked",
     "e  open the task list in scribe at that line",
@@ -1981,11 +1983,26 @@ fn main() {
                                     c.attach(&what.join(" + "), &format!("At gluon's Home {head}:\n\n{}", text.join("\n")));
                                 }
                             }
-                            Some(Act::Copy(b, id, start)) => {
+                            Some(Act::Copy(b, id, start, whole)) => {
                                 let text = home.item(b, id, start, &mail, &cal);
+                                let text = match (whole, b) {
+                                    (false, _) => text.lines().next().unwrap_or_default().to_string(),
+                                    // The task and the lines under it, without
+                                    // the todo:<n> line, moved out to the left.
+                                    (true, BOX_TASKS) => {
+                                        let lines: Vec<&str> = text.lines().skip(1).collect();
+                                        let d = lines.first().map_or(0, |l| depth(l));
+                                        lines.iter().map(|l| &l[depth(l).min(d)..]).collect::<Vec<_>>().join("\n")
+                                    }
+                                    _ => text.trim_end().to_string(),
+                                };
                                 if let Some(r) = text.lines().next() {
-                                    crust::clipboard_copy(r, "clipboard");
-                                    home.note = format!(" Copied: {r}");
+                                    crust::clipboard_copy(&text, "clipboard");
+                                    let more = text.lines().count() - 1;
+                                    home.note = match more {
+                                        0 => format!(" Copied: {r}"),
+                                        n => format!(" Copied: {} and {n} more lines", r.trim()),
+                                    };
                                 }
                             }
                             None => {}
