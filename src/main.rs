@@ -1,16 +1,41 @@
-//! gluon: mail, calendar and tasks in one terminal app. The Mail tab is
-//! kastrup and the Calendar tab is tock, both run as libraries; the
-//! Tasks tab shows ~/.tasks/todo.hl. Ctrl+O moves to the next tab.
+//! gluon: mail, calendar, tasks and Claude in one terminal app. The Mail
+//! tab is kastrup, the Calendar tab is tock and the Claude tab is deck,
+//! all run as libraries; the Tasks tab shows ~/.tasks/todo.hl. Ctrl+O
+//! moves to the next tab, and Ctrl+A jumps to Claude and back.
 
-use crust::{style, Crust, Input, Pane};
+use crust::{style, Crust, Cursor, Input, Pane};
 use std::io::Write;
 use std::os::fd::AsRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-const TABS: [&str; 3] = ["Mail", "Calendar", "Tasks"];
+const TABS: [&str; 4] = ["Mail", "Calendar", "Tasks", "Claude"];
 const MAIL: usize = 0;
 const CALENDAR: usize = 1;
 const TASKS: usize = 2;
+const CLAUDE: usize = 3;
+
+/// The Claude tab's CLAUDE.md, written to ~/.gluon once; edits there stay.
+const BRIEF: &str = "# gluon's Claude tab
+
+You run in the Claude tab of gluon, a terminal app with four tabs: Mail
+(kastrup), Calendar (tock), Tasks and this one. The user moves between
+them with Ctrl+O, and Ctrl+A jumps here and back. When Ctrl+A comes from
+another tab, the next prompt starts with an <on-screen> block saying what
+that tab showed.
+
+Where the user's things are:
+- Mail, RSS and chat: kastrup's SQLite database, ~/.kastrup/kastrup.db.
+  kastrup:<id> is a row in its messages table. Use the kastrup skill when
+  there is one. A draft goes in ~/.kastrup/drafts/, and kastrup lists it
+  on +.
+- Calendar: tock, in ~/.tock/. gluon has tock's store open, so never
+  write to it. Add an event the way the calendar skill says, as a file the
+  running tock imports.
+- Tasks: ~/.tasks/todo.hl, a HyperList file indented with tabs. Edit it
+  in place; the Tasks tab reads it again each time it is shown.
+
+This tab is a pane beside the user's work: answer short.
+";
 
 /// The tab names for the first line, the one in view marked, then the
 /// key that moves on.
@@ -29,8 +54,9 @@ fn tab_line(active: usize) -> String {
 }
 
 /// A tab out of view still does its idle work (new mail, scheduled
-/// sends, alarms), with what it draws thrown away so it does not paint
-/// over the tab in view. Two dup2 calls a turn; /dev/null stays open.
+/// sends, alarms, Claude's answer), with what it draws thrown away so it
+/// does not paint over the tab in view. Two dup2 calls a turn; /dev/null
+/// stays open.
 struct Unseen {
     null: std::fs::File,
     screen: i32,
@@ -65,8 +91,7 @@ struct Tasks {
 }
 
 impl Tasks {
-    fn new() -> Self {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    fn new(home: &Path) -> Self {
         let mut t = Tasks {
             top: Pane::new(1, 1, 1, 1, 255, 236),
             body: Pane::new(1, 2, 1, 1, 255, 0),
@@ -103,7 +128,15 @@ impl Tasks {
         self.load();
         self.top.say(&tab_line(TASKS));
         self.body.full_refresh();
-        self.bottom.say(&style::fg(" j/k scroll  e edit  Ctrl+O next tab  q quit", 245));
+        self.bottom.say(&style::fg(" j/k scroll  e edit  Ctrl+O next tab  Ctrl+A Claude  q quit", 245));
+    }
+
+    /// For the Claude tab: which file is on screen, and from where.
+    fn claude_context(&self) -> String {
+        format!(
+            "The task list {} is on screen, from line {}. It is HyperList.",
+            self.path.display(), self.body.ix + 1
+        )
     }
 
     fn edit(&mut self) {
@@ -133,24 +166,106 @@ impl Tasks {
     }
 }
 
+/// The Claude tab: deck in ~/.gluon, the same session each time (its id
+/// is kept in ~/.gluon/session), so Claude remembers what came before.
+fn start_claude(home: &Path) -> Result<deck::app::App, String> {
+    let dir = home.join(".gluon");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let brief = dir.join("CLAUDE.md");
+    if !brief.exists() {
+        let _ = std::fs::write(&brief, BRIEF);
+    }
+    let kept = std::fs::read_to_string(dir.join("session")).unwrap_or_default();
+    let id = kept.trim();
+    // A new session the first time, or when the old one has no transcript
+    // (no prompt was ever sent in it).
+    let app = if id.is_empty() {
+        deck::app::start(None, dir.to_str())?
+    } else {
+        match deck::app::start(Some(id), None) {
+            Err(e) if e.starts_with("No ") => deck::app::start(None, dir.to_str())?,
+            other => other?,
+        }
+    };
+    let _ = std::fs::write(dir.join("session"), app.session_id());
+    Ok(app)
+}
+
+/// The Claude tab, started the first time it is shown: an idle Claude
+/// Code process takes about 33 mW, more than the rest of gluon.
+enum Claude {
+    Off,
+    On(deck::app::App),
+    Failed(String),
+}
+
+impl Claude {
+    fn app(&mut self) -> Option<&mut deck::app::App> {
+        match self {
+            Claude::On(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    fn open(&mut self, home: &Path) {
+        if let Claude::Off = self {
+            *self = match start_claude(home) {
+                Ok(mut a) => {
+                    a.set_tab_line(Some(tab_line(CLAUDE)));
+                    Crust::set_app_identity("gluon");
+                    Claude::On(a)
+                }
+                Err(e) => Claude::Failed(e),
+            };
+        }
+    }
+
+    fn running(&self) -> bool {
+        match self {
+            Claude::On(a) => a.running(),
+            _ => true,
+        }
+    }
+
+    fn repaint(&mut self) {
+        match self {
+            Claude::On(a) => a.repaint(),
+            Claude::Failed(e) => claude_failed(e),
+            Claude::Off => {}
+        }
+    }
+}
+
+/// What the Claude tab shows when deck could not start.
+fn claude_failed(why: &str) {
+    Crust::clear_screen();
+    let (cols, rows) = Crust::terminal_size();
+    Pane::new(1, 1, cols, 1, 255, 236).say(&tab_line(CLAUDE));
+    Pane::new(2, 3, cols.saturating_sub(2), rows.saturating_sub(3), 252, 0)
+        .say(&format!("Claude could not start: {why}"));
+}
+
 fn main() {
     let arg = std::env::args().nth(1).unwrap_or_default();
     if arg == "-h" || arg == "--help" {
-        println!("gluon — mail, calendar and tasks in one terminal app (Fe2O3 suite)");
+        println!("gluon — mail, calendar, tasks and Claude in one terminal app (Fe2O3 suite)");
         println!();
         println!("Usage: gluon");
         println!();
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
         println!("  Calendar  tock, with its own keys and ~/.tock/");
         println!("  Tasks     ~/.tasks/todo.hl as HyperList; e edits it");
+        println!("  Claude    deck: one Claude Code session that stays, in ~/.gluon/");
         println!();
-        println!("Ctrl+O moves to the next tab. q in any tab ends gluon.");
+        println!("Ctrl+O moves to the next tab. Ctrl+A jumps to Claude with what is on");
+        println!("screen, and back. q in Mail, Calendar or Tasks, or C-D in Claude, ends gluon.");
         return;
     }
     if arg == "-v" || arg == "--version" {
         println!("gluon {}", env!("CARGO_PKG_VERSION"));
         return;
     }
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
 
     // tock first: its store opens to one program at a time, and it ends
     // the program when another tock has it. Nothing of kastrup has
@@ -160,43 +275,119 @@ fn main() {
         tock::app::finish(cal);
         return;
     };
+    let mut claude = Claude::Off;
     Crust::set_app_identity("gluon");
     mail.set_tab_line(Some(tab_line(MAIL)));
     cal.set_tab_line(Some(tab_line(CALENDAR)));
     let unseen = Unseen::new();
-    let mut tasks = Tasks::new();
+    let mut tasks = Tasks::new(&home);
     let mut tab = MAIL;
+    // Where Ctrl+A in the Claude tab goes back to.
+    let mut back = MAIL;
+    let mut size = Crust::terminal_size();
     mail.repaint();
 
-    while mail.running() && cal.running() && !tasks.quit {
-        let wait = match tab {
+    while mail.running() && cal.running() && !tasks.quit && claude.running() {
+        // Claude's 1 s clock while it works is for its own bar alone.
+        let mut wait = match tab {
             MAIL => mail.before_wait().min(unseen.run(|| cal.before_wait())),
             CALENDAR => cal.before_wait().min(unseen.run(|| mail.before_wait())),
             _ => unseen.run(|| mail.before_wait().min(cal.before_wait())),
         };
+        if let (CLAUDE, Claude::On(c)) = (tab, &claude) {
+            wait = wait.min(c.before_wait());
+        }
         let key = Input::getchr(Some(wait));
-        if key.as_deref() == Some("C-O") {
-            tab = (tab + 1) % TABS.len();
+        let next = match key.as_deref() {
+            Some("C-O") => Some((tab + 1) % TABS.len()),
+            Some("C-A") if tab == CLAUDE => Some(back),
+            Some("C-A") => {
+                let seen = match tab {
+                    MAIL => mail.claude_context().map(|t| ("kastrup", t)),
+                    CALENDAR => Some(("tock", cal.claude_context())),
+                    _ => Some(("tasks", tasks.claude_context())),
+                };
+                claude.open(&home);
+                if let (Some(c), Some((what, text))) = (claude.app(), seen) {
+                    unseen.run(|| c.attach(what, &text));
+                }
+                back = tab;
+                Some(CLAUDE)
+            }
+            _ => None,
+        };
+        if let Some(n) = next {
+            tab = n;
+            if tab == CLAUDE {
+                claude.open(&home);
+            }
+            if let Some(c) = claude.app() {
+                c.set_hidden(tab != CLAUDE);
+            }
+            if tab != CLAUDE {
+                Cursor::hide();
+            }
             match tab {
                 MAIL => mail.repaint(),
                 CALENDAR => cal.repaint(),
-                _ => tasks.repaint(),
+                TASKS => tasks.repaint(),
+                _ => claude.repaint(),
             }
             continue;
         }
-        let idle = key.is_none();
-        match tab {
-            MAIL => mail.after_wait(key),
-            CALENDAR => cal.after_wait(key),
-            _ => if let Some(k) = key { tasks.key(&k) },
-        }
-        // The tabs out of view get their idle turn when no key came.
-        if idle {
-            if tab != MAIL { unseen.run(|| mail.after_wait(None)); }
-            if tab != CALENDAR { unseen.run(|| cal.after_wait(None)); }
+        match key.as_deref() {
+            // deck's reader sends SIGWINCH when Claude's output arrives,
+            // so a RESIZE with the size unchanged is for the Claude tab.
+            Some("RESIZE") => {
+                let now = Crust::terminal_size();
+                let resized = now != size;
+                size = now;
+                match (tab, &mut claude) {
+                    (CLAUDE, Claude::On(c)) => c.after_wait(key),
+                    (CLAUDE, _) => claude.repaint(),
+                    _ => {
+                        if resized {
+                            match tab {
+                                MAIL => mail.after_wait(key),
+                                CALENDAR => cal.after_wait(key),
+                                _ => tasks.key("RESIZE"),
+                            }
+                        }
+                        if let Some(c) = claude.app() {
+                            unseen.run(|| c.after_wait(None));
+                        }
+                    }
+                }
+            }
+            // Only deck asks for focus reports.
+            Some("FOCUS_IN" | "FOCUS_OUT") => {
+                if let Some(c) = claude.app() {
+                    if tab == CLAUDE { c.after_wait(key) } else { unseen.run(|| c.after_wait(key)) }
+                }
+            }
+            Some(_) => match tab {
+                MAIL => mail.after_wait(key),
+                CALENDAR => cal.after_wait(key),
+                TASKS => if let Some(k) = key { tasks.key(&k) },
+                _ => if let Some(c) = claude.app() { c.after_wait(key) },
+            },
+            // No key came: every tab gets its idle turn, the hidden ones
+            // unseen. Claude's output wakes it by itself, so a hidden
+            // Claude tab needs none.
+            None => {
+                if tab == MAIL { mail.after_wait(None) } else { unseen.run(|| mail.after_wait(None)) }
+                if tab == CALENDAR { cal.after_wait(None) } else { unseen.run(|| cal.after_wait(None)) }
+                if let (CLAUDE, Some(c)) = (tab, claude.app()) {
+                    c.after_wait(None);
+                }
+            }
         }
     }
 
+    if let Claude::On(c) = claude {
+        let _ = std::fs::write(home.join(".gluon").join("session"), c.session_id());
+        deck::app::finish(c);
+    }
     tock::app::finish(cal);
     kastrup::app::finish(mail);
 }

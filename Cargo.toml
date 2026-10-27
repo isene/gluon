@@ -3,7 +3,7 @@ name = "gluon"
 version = "0.1.0"
 edition = "2021"
 authors = ["Geir Isene <g@isene.com>"]
-description = "Mail, calendar and tasks in one terminal app: kastrup and tock as tabs, built on crust."
+description = "Mail, calendar, tasks and Claude in one terminal app: kastrup, tock and deck as tabs, built on crust."
 license = "Unlicense"
 repository = "https://github.com/isene/gluon"
 
@@ -14,6 +14,8 @@ highlight = { version = "0.1", path = "../highlight", package = "fe2o3-highlight
 # fix in either lands here too.
 kastrup = { path = "../kastrup" }
 tock = { path = "../tock" }
+# The Claude tab is deck.
+deck = { path = "../deck" }
 libc = "0.2"
 
 [profile.release]
