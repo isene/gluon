@@ -797,7 +797,7 @@ impl Home {
             boxes: [
                 Frame::new(" Enter opens · R/A read · d delete · < clears · r reply · Space scrolls "),
                 Frame::new(" Enter opens it in Calendar · Esc Claude "),
-                Frame::new(" Enter edits at this line · Esc Claude "),
+                Frame::new(" Enter edits at this line · x done · Esc Claude "),
             ],
             preview: Frame::new(""),
             shown: None,
@@ -914,7 +914,27 @@ impl Home {
                     "END" => b.step(all),
                     "g" if vi => b.step(-all),
                     "G" if vi => b.step(all),
-                    " " | "S-RIGHT" if !vi => self.preview.pane.pagedown(),
+                    // At the end of the message, Space goes on to the next.
+                    " " if !vi => {
+                        let was = self.preview.pane.ix;
+                        self.preview.pane.pagedown();
+                        if self.preview.pane.ix == was {
+                            b.step(1);
+                        }
+                    }
+                    "S-RIGHT" if !vi => self.preview.pane.pagedown(),
+                    // x ticks a task done in todo.hl, or back to do.
+                    "x" if self.focus == BOX_TASKS => {
+                        let (line, _) = b.picked()?;
+                        rewrite(&self.todo, |lines| {
+                            let top = lines.iter().filter(|l| !l.trim().is_empty()).map(|l| depth(l)).min().unwrap_or(0);
+                            if let Some(s) = lines.get_mut(line as usize - 1).filter(|s| depth(s) > top) {
+                                let done = column_of(&s[depth(s)..]).0 == 3;
+                                *s = in_column(s, if done { 0 } else { 3 });
+                            }
+                        });
+                        self.mtime = None;
+                    }
                     "S-LEFT" if !vi => self.preview.pane.pageup(),
                     // As in kastrup: d moves on to the next message.
                     "R" | "d" if !vi => {
@@ -1071,8 +1091,11 @@ impl Home {
             );
             rows.push((Some((u.id, 0)), line));
         }
+        let r = list.iter().filter(|u| self.marked_read.contains(&u.id) && !self.marked_del.contains(&u.id)).count();
+        let d = list.iter().filter(|u| self.marked_del.contains(&u.id)).count();
+        let marks: String = [("R", r), ("D", d)].iter().filter(|m| m.1 > 0).map(|(k, n)| format!(" · {k} {n}")).collect();
         let b = &mut self.boxes[BOX_MAIL];
-        b.title = format!(" Unread · {}{more} ", list.len());
+        b.title = format!(" Unread · {}{more}{marks} ", list.len());
         b.set_rows(rows);
     }
 

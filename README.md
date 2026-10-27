@@ -30,17 +30,20 @@ goes back, **Esc** jumps to Claude). In a box, the arrows pick a row (j
 and k too, in the agenda and the tasks), and the box's keys show in its
 bottom edge:
 - Mail: the picked message shows on the right, in place of the agenda
-  and the tasks, and stays unread; Space scrolls it, Shift+Left goes back.
+  and the tasks, and stays unread; Space scrolls it and, at its end, goes
+  on to the next message. Shift+Left scrolls back.
   Enter opens it in the Mail tab. A message you browse gets an R mark,
   which R takes off or puts back; A marks them all, and d marks one for
   deletion. Marked messages stay in the box until `<` marks the R ones
-  read in kastrup and deletes the D ones. kastrup's keys for one message
+  read in kastrup and deletes the D ones; the box's title counts both
+  marks. kastrup's keys for one message
   work too (r replies, f forwards, s files, h snoozes, * stars, and so
   on), and Home comes back when they are done; I and c stay in the Mail
   tab to show their answer. Each row has the colour and icon of its kind,
   as in kastrup.
 - Agenda: Enter opens the event in the Calendar tab.
-- Tasks: Enter opens the task list in your editor at that line.
+- Tasks: Enter opens the task list in your editor at that line, and x
+  ticks the task done (`[x]`) or back.
 
 Esc in the tab a box opened brings you back Home.
 
