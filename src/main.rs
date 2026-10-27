@@ -1047,6 +1047,9 @@ enum Act {
     /// clipboard (y).
     Context(usize, i64, i64),
     Copy(usize, i64, i64),
+    /// kastrup's + in the Mail tab: the drafts, postponed and scheduled
+    /// messages, or a new one.
+    Compose,
 }
 
 /// Claude's name at the left of its bar, bright while it has the keys.
@@ -1105,7 +1108,7 @@ impl Home {
         let mut h = Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
-                Frame::new(" Enter opens · R/A read · d delete · < clears · r reply · Space scrolls "),
+                Frame::new(" Enter opens · R/A read · d delete · < clears · r reply · + drafts "),
                 Frame::new(" Enter opens it in Calendar · y copies · Esc Claude "),
                 Frame::new(" Enter edits · x done · d delete · < clears · y copies · Esc Claude "),
             ],
@@ -1329,6 +1332,7 @@ impl Home {
         }
         self.note.clear();
         match k {
+            "+" => return Some(Act::Compose),
             "TAB" | "S-TAB" | "ESC" => {
                 let from = self.focus;
                 let to = match k {
@@ -1844,7 +1848,7 @@ fn main() {
                     _ if !home.full && (!home.claude_keys() || k == "TAB" || k == "S-TAB") => {
                         match home.key(k, &mut claude) {
                             Some(a @ Act::Edit(..)) => (act, next) = (Some(a), Some(TASKS)),
-                            Some(a @ Act::Mail(..)) => (act, next) = (Some(a), Some(MAIL)),
+                            Some(a @ (Act::Mail(..) | Act::Compose)) => (act, next) = (Some(a), Some(MAIL)),
                             Some(a @ Act::Event(..)) => (act, next) = (Some(a), Some(CALENDAR)),
                             Some(Act::Purge(read, del)) => unseen.run(|| mail.read_and_delete(read, del)),
                             Some(Act::Reply(id, text)) => {
@@ -1912,20 +1916,34 @@ fn main() {
             match tab {
                 MAIL => {
                     mail.repaint();
-                    if let Some(Act::Mail(id, k)) = act {
-                        mail.goto_message(id, k.is_some());
-                        let done = k.as_deref().is_some_and(|k| BACK.contains(&k));
-                        if k.is_some() {
-                            mail.after_wait(k);
-                        }
-                        if done && mail.running() {
-                            unseen.run(|| mail.leave_message());
-                            (back, tab, from_home) = (MAIL, HOME, false);
-                            if let Some(c) = claude.app() {
-                                c.set_hidden(false);
+                    // A key for kastrup from a box at Home; those done here
+                    // go back Home.
+                    // `one`: kastrup shows one message, and lets it go after.
+                    let (done, one) = match act {
+                        Some(Act::Mail(id, k)) => {
+                            mail.goto_message(id, k.is_some());
+                            let done = k.as_deref().is_some_and(|k| BACK.contains(&k));
+                            if k.is_some() {
+                                mail.after_wait(k);
                             }
-                            home.repaint(&mail, &cal, &mut claude);
+                            (done, true)
                         }
+                        // The drafts: kastrup's picker waits for its keys.
+                        Some(Act::Compose) => {
+                            mail.after_wait(Some("+".into()));
+                            (true, false)
+                        }
+                        _ => (false, false),
+                    };
+                    if done && mail.running() {
+                        if one {
+                            unseen.run(|| mail.leave_message());
+                        }
+                        (back, tab, from_home) = (MAIL, HOME, false);
+                        if let Some(c) = claude.app() {
+                            c.set_hidden(false);
+                        }
+                        home.repaint(&mail, &cal, &mut claude);
                     }
                 }
                 CALENDAR => {

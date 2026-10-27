@@ -71,6 +71,10 @@ ideas left, or asks Claude again while it is open. Each ask is one
 your Claude Code settings but `~/.claude/CLAUDE.md`, so the answers
 follow your writing rules. Between asks nothing runs.
 
+`+` in any box opens kastrup's list of drafts, postponed and scheduled
+messages, to send one or start a new one; Home comes back when you are
+done.
+
 Esc in the tab a box opened brings you back Home; in scribe, Esc is
 scribe's, and Ctrl+A goes Home.
 
