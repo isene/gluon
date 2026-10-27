@@ -45,8 +45,8 @@ Where the user's things are:
   in place; the Tasks tab reads it again each time it is shown. todo:<n>
   is line n of it.
 
-y in the agenda or the tasks box at Home copies the picked item as
-tock:<id> or todo:<n>, with its text. When the user moves from a box to
+y in a box at Home copies the picked item as kastrup:<id>, tock:<id>
+or todo:<n>, with its text. When the user moves from a box to
 this pane, the next prompt starts with an <on-screen> block holding the
 item that was picked there.
 
@@ -605,9 +605,9 @@ const UNREAD: usize = 100;
 
 /// kastrup's keys for one message, run from the mail box at Home: replies,
 /// forward, edit, unsubscribe, triage, chat, attachments, the browser,
-/// label, file, react, snooze, hide, copy id, star and unsee. Home comes
+/// label, file, react, snooze, hide, star and unsee. Home comes
 /// back when the key is done.
-const BACK: &[&str] = &["r", "e", "g", "f", "E", "O", "z", "C", "v", "x", "X", "l", "s", "k", "h", "m", "M", "y", "*", "-", "u", "U"];
+const BACK: &[&str] = &["r", "e", "g", "f", "E", "O", "z", "C", "v", "x", "X", "l", "s", "k", "h", "m", "M", "*", "-", "u", "U"];
 /// Those whose answer shows in kastrup's own pane, so the Mail tab stays.
 const STAY: &[&str] = &["I", "c"];
 
@@ -1424,7 +1424,6 @@ impl Home {
                     "END" => b.step(all),
                     "g" if vi => b.step(-all),
                     "G" if vi => b.step(all),
-                    // In the mail box, y is kastrup's.
                     "J" if self.focus == BOX_AGENDA => {
                         let key = b.picked()?;
                         if self.joinable.contains(&key) {
@@ -1432,7 +1431,9 @@ impl Home {
                         }
                         self.note = " No meeting link in this event".into();
                     }
-                    "y" | "C-Y" if vi => {
+                    // Copied here, never in the Mail tab: going there and
+                    // back redraws the whole screen for a line of text.
+                    "y" | "C-Y" => {
                         let (id, start) = b.picked()?;
                         return Some(Act::Copy(self.focus, id, start, k == "C-Y"));
                     }
@@ -1745,6 +1746,8 @@ const HELP: &[&str] = &[
     "↑ ↓  pick a row; PgUp, PgDn, Home and End jump",
     "Enter  open it in its tab; Esc comes back",
     "t  tag it; Esc then hands Claude every tagged row",
+    "y  copy as kastrup:<id>, tock:<id> or todo:<n>",
+    "^Y  copy all of the message or event, or the task and its lines",
     "Tab  the next box; Shift+Tab back; Esc Claude",
     "+  kastrup's drafts, postponed and scheduled mail",
     "Mail",
@@ -1753,8 +1756,6 @@ const HELP: &[&str] = &[
     "<  mark the R ones read and delete the D ones",
     "i  oldest first or newest; r f s h * as in kastrup",
     "Agenda and Tasks",
-    "y  copy as tock:<id> or todo:<n>, with its text",
-    "^Y  copy all of the event, or the task with the lines under it",
     "J  join the meeting of an event marked ▶",
     "x d <  tick a task done; mark it for deletion; delete",
     "e  open the task list in scribe at that line",
