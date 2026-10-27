@@ -12,7 +12,8 @@ const MAIL: usize = 0;
 const CALENDAR: usize = 1;
 const TASKS: usize = 2;
 
-/// The tab names for the first line, the one in view marked.
+/// The tab names for the first line, the one in view marked, then the
+/// key that moves on.
 fn tab_line(active: usize) -> String {
     let mut line = String::from(" ");
     for (i, name) in TABS.iter().enumerate() {
@@ -21,8 +22,9 @@ fn tab_line(active: usize) -> String {
         } else {
             line.push_str(&style::fg(name, 245));
         }
-        line.push_str(if i + 1 < TABS.len() { "  " } else { " " });
+        line.push_str("  ");
     }
+    line.push_str(&style::fg("^O ", 240));
     line
 }
 
