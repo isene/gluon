@@ -29,8 +29,10 @@ Home has four parts, three boxes over Claude:
 goes back, **Esc** jumps to Claude). In a box, the arrows pick a row (j
 and k too, in the agenda and the tasks), and the box's keys show in its
 bottom edge:
-- Mail: Enter opens the message in the Mail tab. kastrup's own keys work
-  too: r replies, f forwards, and so on, on the picked message.
+- Mail: the picked message shows on the right, in place of the agenda
+  and the tasks, and stays unread; Space scrolls it, Shift+Left goes back.
+  Enter opens it in the Mail tab. kastrup's own keys work too: r replies,
+  f forwards, and so on, on the picked message.
 - Agenda: Enter opens the event in the Calendar tab.
 - Tasks: Enter opens the task list in your editor at that line.
 

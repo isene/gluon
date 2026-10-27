@@ -438,9 +438,11 @@ impl Frame {
         let title = if focused { style::bold(&style::fg(&self.title, 255)) } else { style::fg(&self.title, 245) };
         let keys = if focused { style::fg(self.keys, 245) } else { String::new() };
         let mut s = Cursor::at(self.x, self.y) + &edge("╭", title, "╮");
+        // The sides with the margin inside them, so nothing another box
+        // drew in that column stays.
         for r in 1..self.h - 1 {
-            s += &(Cursor::at(self.x, self.y + r) + &style::fg("│", c));
-            s += &(Cursor::at(self.x + self.w - 1, self.y + r) + &style::fg("│", c));
+            s += &(Cursor::at(self.x, self.y + r) + &style::fg("│", c) + " ");
+            s += &(Cursor::at(self.x + self.w - 2, self.y + r) + " " + &style::fg("│", c));
         }
         s += &(Cursor::at(self.x, self.y + self.h - 1) + &edge("╰", keys, "╯"));
         print!("{s}");
@@ -470,6 +472,11 @@ fn claude_label(focused: bool) -> String {
 struct Home {
     bar: Pane,
     boxes: [Frame; 3],
+    /// The message picked in the mail box, in the right column while the
+    /// mail box has the keys; which one it shows; whether it was shown.
+    preview: Frame,
+    shown: Option<i64>,
+    previewing: bool,
     /// The box with the keys, or CLAUDE.
     focus: usize,
     /// The keys of the views to show, as "1 2 3", in ~/.gluon/views.
@@ -488,10 +495,13 @@ impl Home {
         let mut h = Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
-                Frame::new(" Enter opens · r replies · kastrup's keys work · Esc Claude "),
+                Frame::new(" Enter opens · r replies · Space scrolls, S-← back · Esc Claude "),
                 Frame::new(" Enter opens it in Calendar · Esc Claude "),
                 Frame::new(" Enter edits at this line · Esc Claude "),
             ],
+            preview: Frame::new(""),
+            shown: None,
+            previewing: false,
             focus: CLAUDE,
             views: home.join(".gluon").join("views"),
             todo: home.join(".tasks").join("todo.hl"),
@@ -523,6 +533,10 @@ impl Home {
         self.boxes[BOX_MAIL].place(1, 2, lw, h);
         self.boxes[BOX_AGENDA].place(lw + 1, 2, rw, ah);
         self.boxes[BOX_TASKS].place(lw + 1, 2 + ah, rw, h - ah);
+        self.preview.place(lw + 1, 2, rw, h);
+        self.preview.pane.wrap = true;
+        self.preview.title = " Message ".into();
+        self.shown = None;
     }
 
     /// The whole tab, after another tab had the screen or it was resized.
@@ -596,6 +610,8 @@ impl Home {
                     "END" => b.step(all),
                     "g" if vi => b.step(-all),
                     "G" if vi => b.step(all),
+                    " " | "S-RIGHT" if !vi => self.preview.pane.pagedown(),
+                    "S-LEFT" if !vi => self.preview.pane.pageup(),
                     _ => {
                         let (id, start) = b.picked()?;
                         let one = k.chars().count() == 1;
@@ -646,10 +662,41 @@ impl Home {
             self.mtime = mtime;
             self.load_tasks();
         }
-        for (i, b) in self.boxes.iter_mut().enumerate() {
-            drew |= b.draw(self.focus == i, force);
+        // While the mail box has the keys, the picked message takes the
+        // place of the agenda and the tasks.
+        let preview = self.focus == BOX_MAIL;
+        let swap = preview != self.previewing;
+        self.previewing = preview;
+        drew |= self.boxes[BOX_MAIL].draw(preview, force);
+        if preview {
+            drew |= self.draw_preview(mail, force || swap);
+        } else {
+            for i in [BOX_AGENDA, BOX_TASKS] {
+                drew |= self.boxes[i].draw(self.focus == i, force || swap);
+            }
         }
         drew
+    }
+
+    /// The picked message, read again when the pick moved (kastrup keeps
+    /// it unread), and drawn whole when `force`.
+    fn draw_preview(&mut self, mail: &kastrup::app::App, force: bool) -> bool {
+        let id = self.boxes[BOX_MAIL].picked().map(|k| k.0);
+        if !force && id == self.shown {
+            return false;
+        }
+        let p = &mut self.preview;
+        if force {
+            p.frame(false);
+        }
+        if id != self.shown {
+            let text = id.map_or(String::new(), |i| mail.message_text(i, p.pane.w as usize));
+            p.pane.set_text(&text);
+            p.pane.ix = 0;
+            self.shown = id;
+        }
+        p.pane.full_refresh();
+        true
     }
 
     /// The unread messages in the views, newest first, each in its view's
