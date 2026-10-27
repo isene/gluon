@@ -2133,6 +2133,9 @@ fn main() {
                     if let Some(Act::Event(id, start)) = act {
                         cal.show_event(id, start);
                     }
+                    // tock checks its goto file and the poller once a
+                    // minute; an invite kastrup just accepted shows now.
+                    unseen.run(|| cal.after_wait(None));
                     cal.repaint();
                 }
                 TASKS => match act {
