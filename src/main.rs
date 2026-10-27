@@ -1141,6 +1141,8 @@ struct Home {
     helping: bool,
     /// Events in the agenda with a meeting link, which J opens.
     joinable: HashSet<(i64, i64)>,
+    /// The mail box lists the oldest first (i turns it, as in kastrup).
+    oldest: bool,
 }
 
 impl Home {
@@ -1175,6 +1177,7 @@ impl Home {
             help: Frame::new(" Esc or ? closes "),
             helping: false,
             joinable: HashSet::new(),
+            oldest: false,
         };
         h.layout();
         h
@@ -1499,6 +1502,10 @@ impl Home {
                         }
                         self.sig = None;
                     }
+                    "i" if !vi => {
+                        self.oldest = !self.oldest;
+                        self.sig = None;
+                    }
                     "A" if !vi => {
                         self.marked_read.extend(b.rows.iter().filter_map(|r| r.0.map(|k| k.0)));
                         self.sig = None;
@@ -1624,7 +1631,7 @@ impl Home {
         true
     }
 
-    /// The unread messages in the views, newest first, each with its view's
+    /// The unread messages in the views, newest first (or oldest), each with its view's
     /// key in the view's colour.
     fn load_mail(&mut self, mail: &kastrup::app::App) {
         let file = std::fs::read_to_string(&self.views).unwrap_or_default();
@@ -1636,6 +1643,9 @@ impl Home {
         let mut list = mail.unread_in_views(&keys, UNREAD);
         self.purged.retain(|id| list.iter().any(|u| u.id == *id));
         list.retain(|u| !self.purged.contains(&u.id));
+        if self.oldest {
+            list.reverse();
+        }
         let more = if list.len() == UNREAD { "+" } else { "" };
         let mut rows = Vec::new();
         if list.is_empty() {
@@ -1667,7 +1677,8 @@ impl Home {
         let d = list.iter().filter(|u| self.marked_del.contains(&u.id)).count();
         let marks: String = [("R", r), ("D", d)].iter().filter(|m| m.1 > 0).map(|(k, n)| format!(" · {k} {n}")).collect();
         let b = &mut self.boxes[BOX_MAIL];
-        b.title = format!(" Unread · {}{more}{marks} ", list.len());
+        let order = if self.oldest { " · oldest first" } else { "" };
+        b.title = format!(" Unread · {}{more}{marks}{order} ", list.len());
         b.set_rows(rows);
     }
 
@@ -1740,7 +1751,7 @@ const HELP: &[&str] = &[
     "Space  scroll the message, at its end the next one",
     "R A d  mark read or not, all read, for deletion",
     "<  mark the R ones read and delete the D ones",
-    "r f s h *  kastrup's keys for one message",
+    "i  oldest first or newest; r f s h * as in kastrup",
     "Agenda and Tasks",
     "y  copy as tock:<id> or todo:<n>, with its text",
     "^Y  copy all of the event, or the task with the lines under it",

@@ -38,9 +38,9 @@ at Home:
   which R takes off or puts back; A marks them all, and d marks one for
   deletion. Marked messages stay in the box until `<` marks the R ones
   read in kastrup and deletes the D ones; the box's title counts both
-  marks. kastrup's keys for one message
-  work too (r replies, f forwards, s files, h snoozes, * stars, and so
-  on), and Home comes back when they are done; I and c stay in the Mail
+  marks. i lists the oldest first, and i again the newest, as in
+  kastrup. kastrup's keys for one message work too (r replies, f
+  forwards, s files, h snoozes, * stars, and so on), and Home comes back when they are done; I and c stay in the Mail
   tab to show their answer. Each row has the colour and icon of its kind,
   as in kastrup.
 - Agenda: Enter opens the event in the Calendar tab, and y copies it as
