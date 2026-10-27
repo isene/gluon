@@ -1214,17 +1214,13 @@ impl Home {
                 format!("kastrup:{id}\n{}\n", text.trim())
             }
             BOX_AGENDA => cal.event_text(id, start),
-            _ => {
-                let lines: Vec<String> = std::fs::read_to_string(&self.todo).unwrap_or_default().lines().map(String::from).collect();
-                let i = id as usize - 1;
-                let Some(first) = lines.get(i).map(|l| l.trim()).filter(|l| !l.is_empty()) else { return String::new() };
-                let mut out = format!("todo:{id} {first}\n");
-                for l in &lines[i..block_end(&lines, i)] {
-                    out += &format!("{l}\n");
-                }
-                out
-            }
+            _ => task_item(&self.task_lines(), id),
         }
+    }
+
+    /// The lines of todo.hl.
+    fn task_lines(&self) -> Vec<String> {
+        std::fs::read_to_string(&self.todo).unwrap_or_default().lines().map(String::from).collect()
     }
 
     /// Claude has the keys: its pane is focused and no ideas are open.
@@ -1745,6 +1741,33 @@ fn help_row(l: &str) -> String {
     }
 }
 
+/// Task `n` of todo.hl (from 1) and the lines under it, as in the file.
+fn task_block(lines: &[String], n: i64) -> &[String] {
+    let i = (n - 1).max(0) as usize;
+    match lines.get(i) {
+        Some(l) if !l.trim().is_empty() => &lines[i..block_end(lines, i)],
+        _ => &[],
+    }
+}
+
+/// Task `n` for Claude: "todo:<n> text", then the lines under it.
+fn task_item(lines: &[String], n: i64) -> String {
+    let block = task_block(lines, n);
+    let Some(first) = block.first() else { return String::new() };
+    let mut out = format!("todo:{n} {}\n", first.trim());
+    for l in &block[1..] {
+        out += &format!("{l}\n");
+    }
+    out
+}
+
+/// Task `n` and the lines under it, moved out to the left (Ctrl+Y).
+fn task_copy(lines: &[String], n: i64) -> String {
+    let block = task_block(lines, n);
+    let d = block.first().map_or(0, |l| depth(l));
+    block.iter().map(|l| &l[depth(l).min(d)..]).collect::<Vec<_>>().join("\n")
+}
+
 /// A line of todo.hl as a number, so a tag stays with its text.
 fn line_key(l: &str) -> i64 {
     use std::hash::{Hash, Hasher};
@@ -1987,13 +2010,7 @@ fn main() {
                                 let text = home.item(b, id, start, &mail, &cal);
                                 let text = match (whole, b) {
                                     (false, _) => text.lines().next().unwrap_or_default().to_string(),
-                                    // The task and the lines under it, without
-                                    // the todo:<n> line, moved out to the left.
-                                    (true, BOX_TASKS) => {
-                                        let lines: Vec<&str> = text.lines().skip(1).collect();
-                                        let d = lines.first().map_or(0, |l| depth(l));
-                                        lines.iter().map(|l| &l[depth(l).min(d)..]).collect::<Vec<_>>().join("\n")
-                                    }
+                                    (true, BOX_TASKS) => task_copy(&home.task_lines(), id),
                                     _ => text.trim_end().to_string(),
                                 };
                                 if let Some(r) = text.lines().next() {
@@ -2124,6 +2141,15 @@ mod tests {
     use super::*;
 
     const TODO: &str = "\tInbox\n\tHome\n\t\tPaint\n\t\t[O] Bike\n\t\t\tChain\n\t\t[x] Milk\n\tWork\n\t\t[-] Ask\n";
+
+    #[test]
+    fn a_task_goes_to_claude_once_and_copies_moved_left() {
+        let lines: Vec<String> = TODO.lines().map(String::from).collect();
+        // Line 4 is "\t\t[O] Bike" with "\t\t\tChain" under it.
+        assert_eq!(task_item(&lines, 4), "todo:4 [O] Bike\n\t\t\tChain\n");
+        assert_eq!(task_copy(&lines, 4), "[O] Bike\n\tChain");
+        assert_eq!(task_item(&lines, 99), "");
+    }
 
     #[test]
     fn a_tag_stays_with_its_line_and_goes_to_claude_once() {
