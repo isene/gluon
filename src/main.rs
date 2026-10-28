@@ -1570,7 +1570,9 @@ fn main() {
             CALENDAR => cal.before_wait().min(unseen.run(|| mail.before_wait())),
             _ => unseen.run(|| mail.before_wait().min(cal.before_wait())),
         };
-        if let (HOME, Claude::On(c)) = (tab, &claude) {
+        // Hidden, deck drops that clock but still wakes to pause an idle
+        // Claude.
+        if let Claude::On(c) = &claude {
             wait = wait.min(c.before_wait());
         }
         // scribe wakes only to write unsaved text to its recovery file.
@@ -1722,13 +1724,12 @@ fn main() {
                     }
                 },
                 // No key came: every tab gets its idle turn, the hidden ones
-                // unseen. Claude's output wakes it by itself, so a hidden
-                // Claude needs none.
+                // unseen. A hidden Claude's turn pauses it when idle.
                 None => {
                     if tab == MAIL { mail.after_wait(None) } else { unseen.run(|| mail.after_wait(None)) }
                     if tab == CALENDAR { cal.after_wait(None) } else { unseen.run(|| cal.after_wait(None)) }
-                    if let (HOME, Some(c)) = (tab, claude.app()) {
-                        c.after_wait(None);
+                    if let Some(c) = claude.app() {
+                        if tab == HOME { c.after_wait(None) } else { unseen.run(|| c.after_wait(None)) }
                     }
                     if let Some(e) = tasks.ed.as_mut().filter(|e| e.before_wait().is_some()) {
                         if tab == TASKS && !tasks.board { e.after_wait(None) } else { unseen.run(|| e.after_wait(None)) }
