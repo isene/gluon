@@ -1,6 +1,6 @@
 [package]
 name = "gluon"
-version = "0.15.1"
+version = "0.15.2"
 edition = "2021"
 authors = ["Geir Isene <g@isene.com>"]
 description = "Mail, calendar, tasks and Claude in one terminal app: kastrup, tock and deck as tabs, built on crust."

@@ -41,8 +41,9 @@ at Home:
   marks. i lists the oldest first, and i again the newest, as in
   kastrup. y copies `kastrup:<id>`, and Ctrl+Y the whole message.
   kastrup's keys for one message work too (r replies, f
-  forwards, s files, h snoozes, * stars, and so on), and Home comes back when they are done; I and c stay in the Mail
-  tab to show their answer. Each row has the colour and icon of its kind,
+  forwards, s files, h snoozes, v lists the attachments, * stars, and so
+  on), and Home comes back when they are done; I, c and V (the images)
+  stay in the Mail tab to show their answer, and Esc comes back. Each row has the colour and icon of its kind,
   as in kastrup.
 - Agenda: Enter opens the event in the Calendar tab, and y copies it as
   `tock:<id>` with its title and time. Ctrl+Y copies all of the event.

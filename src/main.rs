@@ -613,8 +613,9 @@ const UNREAD: usize = 100;
 /// label, file, react, snooze, hide, star and unsee. Home comes
 /// back when the key is done.
 const BACK: &[&str] = &["r", "e", "g", "f", "E", "O", "z", "C", "v", "x", "X", "l", "s", "k", "h", "m", "M", "*", "-", "u", "U"];
-/// Those whose answer shows in kastrup's own pane, so the Mail tab stays.
-const STAY: &[&str] = &["I", "c"];
+/// Those whose answer shows in kastrup's own pane, so the Mail tab stays:
+/// Claude's answer, chat, and the message's images (V).
+const STAY: &[&str] = &["I", "c", "V"];
 
 /// A box at Home: a frame with its title in the top edge and rows inside.
 /// While it has the keys, one row is picked and the keys show in the
@@ -1419,6 +1420,7 @@ const HELP: &[&str] = &[
     "R A d  mark read or not, all read, for deletion",
     "<  mark the R ones read and delete the D ones",
     "i  oldest first or newest; r f s h * as in kastrup",
+    "v V  the attachments; the images, in the Mail tab",
     "Agenda and Tasks",
     "J  join the meeting of an event marked ▶",
     "x d <  tick a task done; mark it for deletion; delete",
@@ -1741,6 +1743,10 @@ fn main() {
             if tab == TASKS {
                 tasks.leave();
             }
+            // An image kastrup showed (V) stays on the screen until dropped.
+            if tab == MAIL && n != MAIL {
+                mail.hide_image();
+            }
             if n == HOME {
                 back = tab;
             }
@@ -1754,13 +1760,17 @@ fn main() {
             }
             match tab {
                 MAIL => {
+                    // A message from Home goes under kastrup's cursor before
+                    // the paint, which would mark the message there read.
+                    if let Some(Act::Mail(id, k)) = &act {
+                        mail.goto_message(*id, k.is_some());
+                    }
                     mail.repaint();
                     // A key for kastrup from a box at Home; those done here
                     // go back Home.
                     // `one`: kastrup shows one message, and lets it go after.
                     let (done, one) = match act {
-                        Some(Act::Mail(id, k)) => {
-                            mail.goto_message(id, k.is_some());
+                        Some(Act::Mail(_, k)) => {
                             let done = k.as_deref().is_some_and(|k| BACK.contains(&k));
                             if k.is_some() {
                                 mail.after_wait(k);
