@@ -708,6 +708,18 @@ impl Frame {
         self.dirty = true;
     }
 
+    /// Up and Down: one row on, and past either end round to the other.
+    fn turn(&mut self, d: isize) {
+        let first = self.rows.iter().position(|r| r.0.is_some());
+        let last = self.rows.iter().rposition(|r| r.0.is_some());
+        match (first, last) {
+            (Some(f), Some(l)) if d > 0 && self.sel >= l => self.sel = f,
+            (Some(f), Some(l)) if d < 0 && self.sel <= f => self.sel = l,
+            _ => return self.step(d),
+        }
+        self.step(0);
+    }
+
     fn picked(&self) -> Option<(i64, i64)> {
         self.rows.get(self.sel).and_then(|r| r.0)
     }
@@ -1086,10 +1098,10 @@ impl Home {
                 // message, but t and ? are Home's.
                 let vi = self.focus != BOX_MAIL;
                 match k {
-                    "DOWN" => b.step(1),
-                    "UP" => b.step(-1),
-                    "j" if vi => b.step(1),
-                    "k" if vi => b.step(-1),
+                    "DOWN" => b.turn(1),
+                    "UP" => b.turn(-1),
+                    "j" if vi => b.turn(1),
+                    "k" if vi => b.turn(-1),
                     "t" => b.tag(),
                     "?" => self.helping = true,
                     "PgDOWN" => b.step(page),
@@ -1911,6 +1923,24 @@ mod tests {
         f.tag();
         assert_eq!(f.take_tags(), vec![(1, line_key("a")), (3, line_key("c"))]);
         assert!(f.take_tags().is_empty());
+    }
+
+    #[test]
+    fn up_and_down_go_round_past_the_ends() {
+        let mut f = Frame::new("");
+        f.place(1, 1, 40, 4);
+        let mut rows: Vec<(Option<(i64, i64)>, String)> = (1..=5).map(|i| (Some((i, 0)), i.to_string())).collect();
+        rows.insert(0, (None, "rule".into()));
+        f.set_rows(rows);
+        assert_eq!(f.sel, 1);
+        f.turn(-1);
+        assert_eq!((f.sel, f.top), (5, 4));
+        f.turn(1);
+        assert_eq!((f.sel, f.top), (1, 1));
+        // Marking steps on but stops at the last message.
+        f.sel = 5;
+        f.step(1);
+        assert_eq!(f.sel, 5);
     }
 
     #[test]
