@@ -69,6 +69,10 @@ A task goes in todo.hl, an event on the calendar, and an answer in
 kastrup's drafts, which `+` opens; nothing is sent without you. Each press
 adds the unread mail, the agenda and the task list to the session.
 
+To look wider, write the steps in `~/.gluon/sweep`, in your own words, and
+each Ctrl+S adds them to the question: a search of your archive for what
+waits on you, say. Without the file, nothing else is asked.
+
 `+` in any box opens kastrup's list of drafts, postponed and scheduled
 messages, to send one or start a new one; Home comes back when you are
 done.

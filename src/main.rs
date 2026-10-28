@@ -52,8 +52,9 @@ this pane, the next prompt starts with an <on-screen> block holding the
 item that was picked there.
 
 Ctrl+S at Home asks what to do about the unread mail, the calendar and
-the tasks, with all three in an <on-screen app=\"gluon\"> block. Number
-the ideas, and do the ones the user picks.
+the tasks, with all three in an <on-screen app=\"gluon\"> block, and with
+the steps in ~/.gluon/sweep when that file exists. Number the ideas, and
+do the ones the user picks.
 
 Home lists the unread mail in the kastrup views whose keys are in
 ~/.gluon/views, as \"1 2 3\" (the default), each with its view's key in
@@ -986,7 +987,10 @@ impl Home {
         let tasks: String = std::fs::read_to_string(&self.todo).unwrap_or_default().chars().take(8000).collect();
         seen += &format!("\n# Task list ({})\n{tasks}\n", self.todo.display());
         c.attach("gluon", &seen);
-        c.ask(ASK);
+        // ~/.gluon/sweep, when there is one: steps of the user's own for
+        // Claude to take before it proposes, such as a search elsewhere.
+        let sweep = std::fs::read_to_string(self.views.with_file_name("sweep")).unwrap_or_default();
+        c.ask(&if sweep.trim().is_empty() { ASK.to_string() } else { format!("{ASK}\n\n{}", sweep.trim()) });
         // On the whole screen Claude has the keys already, and its own bar.
         if self.full {
             self.focus = CLAUDE;
