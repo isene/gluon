@@ -38,8 +38,9 @@ Where the user's things are:
   there is one. A draft goes in ~/.kastrup/drafts/, and kastrup lists it
   on +.
 - Calendar: tock, in ~/.tock/. gluon has tock's store open, so never
-  write to it. Add an event the way the calendar skill says, as a file the
-  running tock imports. tock:<id> is an event; the text pasted after it
+  write to it. Add an event as an .ics file in ~/.tock/incoming/, then
+  write its date (YYYY-MM-DD) to ~/.tock/goto: tock imports it within a
+  minute and shows that day. tock:<id> is an event; the text pasted after it
   says what it is, since the store cannot be read while gluon runs.
 - Tasks: ~/.tasks/todo.hl, a HyperList file indented with tabs. Edit it
   in place; the Tasks tab reads it again each time it is shown. todo:<n>
@@ -49,6 +50,10 @@ y in a box at Home copies the picked item as kastrup:<id>, tock:<id>
 or todo:<n>, with its text. When the user moves from a box to
 this pane, the next prompt starts with an <on-screen> block holding the
 item that was picked there.
+
+Ctrl+S at Home asks what to do about the unread mail, the calendar and
+the tasks, with all three in an <on-screen app=\"gluon\"> block. Number
+the ideas, and do the ones the user picks.
 
 Home lists the unread mail in the kastrup views whose keys are in
 ~/.gluon/views, as \"1 2 3\" (the default), each with its view's key in
@@ -782,284 +787,16 @@ impl Frame {
     }
 }
 
-/// What a key in one of Home's boxes asks of the rest of gluon.
-/// What Claude is asked on Ctrl+S at Home. The messages, the calendar and
-/// the task list follow it.
-const ASK: &str = r#"You help one person keep up with their mail, calendar and tasks. Below are their unread messages, their calendar for the coming 30 days and their task list (HyperList: a tab per level, [x] done, [O] doing). Propose at most 8 things they would want done:
-- "task": something they must do, or were asked to do, that is not in the task list yet;
-- "event": a meeting, appointment or deadline with a date, that is not on the calendar yet;
-- "reply": an answer to a message that needs one, written as they would send it: short, in plain words and the language of the message, with no signature.
-Leave out newsletters and notices that need nothing. Answer with a JSON array and nothing else:
-[{"kind":"task","text":"Send Alice the contract","why":"Alice asked for it on Monday"},
- {"kind":"event","text":"Dentist","start":"YYYY-MM-DD HH:MM","end":"YYYY-MM-DD HH:MM","why":"..."},
- {"kind":"reply","id":123,"text":"Thursday works. See you at ten.","why":"..."}]
-An event for a whole day has start as YYYY-MM-DD and no end. "id" is the number of the message. "why" is one short line. Answer [] when nothing needs doing."#;
-
-/// One thing Claude proposes: a task for todo.hl, an event for the
-/// calendar, or an answer to a message.
-struct Idea {
-    kind: String,
-    text: String,
-    /// An event's start and end, as "YYYY-MM-DD HH:MM" or a date alone.
-    start: String,
-    end: String,
-    /// The message a reply answers.
-    id: i64,
-    why: String,
-}
-
-/// Claude's ideas, in the right column at Home after Ctrl+S. One
-/// `claude -p` per press runs in a thread, so nothing waits on it, and
-/// nothing runs between presses.
-struct Ideas {
-    frame: Frame,
-    list: Vec<Idea>,
-    /// The messages the ideas were made from, by id, as "sender: subject".
-    msgs: std::collections::HashMap<i64, String>,
-    job: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
-    open: bool,
-    /// What happened last, at the top of the box.
-    note: String,
-}
-
-impl Ideas {
-    fn new() -> Self {
-        Ideas {
-            frame: Frame::new(" Enter does it · d drops · ^S asks again · Esc closes "),
-            list: Vec::new(),
-            msgs: Default::default(),
-            job: None,
-            open: false,
-            note: String::new(),
-        }
-    }
-
-    /// claude -p on `prompt`, with no tools and none of the user's
-    /// settings but their writing rules in `rules` (~/.claude/CLAUDE.md),
-    /// so the answer is the JSON alone. It wakes the key wait as deck's
-    /// reader does: SIGWINCH, read as a RESIZE.
-    fn start(&mut self, prompt: String, dir: PathBuf, rules: PathBuf) {
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let run = || -> Result<String, String> {
-                let mut claude = std::process::Command::new("claude");
-                claude.args(["-p", "--safe-mode", "--tools", "", "--no-session-persistence"]);
-                if rules.is_file() {
-                    claude.arg("--append-system-prompt-file").arg(&rules);
-                }
-                let mut child = claude
-                    .current_dir(dir)
-                    .stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .spawn()
-                    .map_err(|e| format!("claude did not start: {e}"))?;
-                if let Some(mut i) = child.stdin.take() {
-                    let _ = i.write_all(prompt.as_bytes());
-                }
-                let out = child.wait_with_output().map_err(|e| e.to_string())?;
-                if !out.status.success() {
-                    let err = String::from_utf8_lossy(&out.stderr);
-                    return Err(err.lines().next().unwrap_or("claude failed").into());
-                }
-                Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-            };
-            let _ = tx.send(run());
-            unsafe {
-                libc::kill(libc::getpid(), libc::SIGWINCH);
-            }
-        });
-        self.job = Some(rx);
-        self.list.clear();
-        self.note = "Claude is reading the unread mail, the calendar and the tasks…".into();
-        self.load();
-    }
-
-    /// True when Claude's answer came.
-    fn poll(&mut self) -> bool {
-        let Some(rx) = &self.job else { return false };
-        let answer = match rx.try_recv() {
-            Err(std::sync::mpsc::TryRecvError::Empty) => return false,
-            Err(_) => Err("the run stopped".into()),
-            Ok(a) => a,
-        };
-        self.job = None;
-        match answer.and_then(|a| parse_ideas(&a, &self.msgs)) {
-            Ok(list) => {
-                self.note = if list.is_empty() { "Nothing to propose.".into() } else { String::new() };
-                self.list = list;
-            }
-            Err(e) => self.note = format!("No ideas: {e}"),
-        }
-        self.frame.sel = 0;
-        self.frame.top = 0;
-        self.load();
-        true
-    }
-
-    /// The box's rows: a line for each idea, with its text and why under it.
-    fn load(&mut self) {
-        let w = self.frame.inner();
-        let mut rows = Vec::new();
-        if !self.note.is_empty() {
-            for l in wrap(&self.note, w.saturating_sub(1), 3) {
-                rows.push((None, style::fg(&format!(" {l}"), 245)));
-            }
-            rows.push((None, String::new()));
-        }
-        for (i, idea) in self.list.iter().enumerate() {
-            if i > 0 {
-                rows.push((None, String::new()));
-            }
-            let (label, c, head) = match idea.kind.as_str() {
-                "task" => ("Task ", 156, idea.text.clone()),
-                "event" => ("Event", 117, format!("{} {}", idea.start, idea.text)),
-                _ => ("Reply", 222, format!("to {}", self.msgs.get(&idea.id).map_or("", |m| m.as_str()))),
-            };
-            rows.push((Some((i as i64, 0)), format!(" {} {head}", style::fg(label, c))));
-            if idea.kind == "reply" {
-                for l in wrap(&idea.text, w.saturating_sub(8), 6) {
-                    rows.push((None, style::fg(&format!("       {l}"), 250)));
-                }
-            }
-            for l in wrap(&idea.why, w.saturating_sub(8), 2) {
-                rows.push((None, style::fg(&format!("       {l}"), 242)));
-            }
-        }
-        self.frame.title = match (self.job.is_some(), self.list.len()) {
-            (true, _) => " Ideas · thinking ".into(),
-            (_, 0) => " Ideas ".into(),
-            (_, n) => format!(" Ideas · {n} "),
-        };
-        self.frame.set_rows(rows);
-    }
-
-    /// The Ctrl+S hint on Home's bar.
-    fn hint(&self) -> String {
-        match (self.job.is_some(), self.list.len()) {
-            (true, _) => "^S thinking…".into(),
-            (_, 0) => "^S ideas".into(),
-            (_, 1) if !self.open => "^S 1 idea".into(),
-            (_, n) if !self.open => format!("^S {n} ideas"),
-            _ => "^S ideas".into(),
-        }
-    }
-
-    /// The picked idea, taken off the list.
-    fn take(&mut self) -> Option<Idea> {
-        let i = self.frame.picked()?.0 as usize;
-        (i < self.list.len()).then(|| self.list.remove(i))
-    }
-}
-
-/// Claude's answer as ideas: the first JSON array in it, with any text
-/// around it skipped and what cannot be done left out (an event with no
-/// date, a reply to a message it was not shown).
-fn parse_ideas(answer: &str, msgs: &std::collections::HashMap<i64, String>) -> Result<Vec<Idea>, String> {
-    let all: Vec<serde_json::Value> = answer
-        .match_indices('[')
-        .find_map(|(a, _)| serde_json::Deserializer::from_str(&answer[a..]).into_iter().next()?.ok())
-        .ok_or("Claude's answer had no list")?;
-    Ok(all
-        .iter()
-        .filter_map(|v| {
-            let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
-            let idea = Idea {
-                kind: s("kind"),
-                text: s("text"),
-                start: s("start"),
-                end: s("end"),
-                id: v.get("id").and_then(|x| x.as_i64().or_else(|| x.as_str()?.parse().ok())).unwrap_or(0),
-                why: s("why"),
-            };
-            let ok = !idea.text.is_empty()
-                && match idea.kind.as_str() {
-                    "task" => true,
-                    "event" => ics_time(&idea.start).is_some(),
-                    "reply" => msgs.contains_key(&idea.id),
-                    _ => false,
-                };
-            ok.then_some(idea)
-        })
-        .take(8)
-        .collect())
-}
-
-/// "YYYY-MM-DD HH:MM" as an ICS local time, "YYYYMMDDTHHMM00", or
-/// "YYYY-MM-DD" as a date alone, "YYYYMMDD".
-fn ics_time(s: &str) -> Option<String> {
-    let b = s.as_bytes();
-    let digits = |r: std::ops::Range<usize>| b.get(r.clone()).is_some_and(|d| d.iter().all(u8::is_ascii_digit));
-    let date = digits(0..4) && b.get(4) == Some(&b'-') && digits(5..7) && b.get(7) == Some(&b'-') && digits(8..10);
-    if !date {
-        return None;
-    }
-    let d = format!("{}{}{}", &s[0..4], &s[5..7], &s[8..10]);
-    match b.len() {
-        10 => Some(d),
-        16 if matches!(b[10], b' ' | b'T') && digits(11..13) && b[13] == b':' && digits(14..16) => {
-            Some(format!("{d}T{}{}00", &s[11..13], &s[14..16]))
-        }
-        _ => None,
-    }
-}
-
-/// An event for tock: an .ics in ~/.tock/incoming, and its day in
-/// ~/.tock/goto, which makes tock read the file on its next turn and show
-/// that day, as kastrup's Z does.
-fn add_event(home: &Path, idea: &Idea) -> bool {
-    let Some(start) = ics_time(&idea.start) else { return false };
-    let tock = home.join(".tock");
-    let incoming = tock.join("incoming");
-    let _ = std::fs::create_dir_all(&incoming);
-    let esc = |t: &str| t.replace('\\', "\\\\").replace(';', "\\;").replace(',', "\\,").replace('\n', "\\n");
-    let kind = if start.len() == 8 { ";VALUE=DATE" } else { "" };
-    let mut ics = format!(
-        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//gluon//EN\r\nBEGIN:VEVENT\r\nUID:gluon-{}-{}\r\nDTSTART{kind}:{start}\r\n",
-        std::process::id(),
-        crate::now(),
-    );
-    // With no end, tock makes it an hour, or the whole day.
-    if let Some(end) = ics_time(&idea.end).filter(|e| e.len() == start.len() && *e > start) {
-        ics += &format!("DTEND{kind}:{end}\r\n");
-    }
-    ics += &format!("SUMMARY:{}\r\nDESCRIPTION:{}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n", esc(&idea.text), esc(&idea.why));
-    let file = incoming.join(format!("gluon_{}_{}.ics", crate::now(), start));
-    std::fs::write(file, ics).is_ok() && std::fs::write(tock.join("goto"), &idea.start[..10]).is_ok()
-}
-
-/// A task at the end of the Inbox lane in todo.hl, or of the first lane,
-/// or in a new Inbox lane when the file has none.
-fn add_task(path: &Path, text: &str) {
-    let text = text.replace('\n', " ");
-    if !path.exists() {
-        if let Some(d) = path.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        let _ = std::fs::write(path, format!("Inbox\n\t{text}\n"));
-        return;
-    }
-    rewrite(path, |lines| {
-        let Some(top) = lines.iter().filter(|l| !l.trim().is_empty()).map(|l| depth(l)).min() else {
-            lines.extend(["Inbox".to_string(), format!("\t{text}")]);
-            return;
-        };
-        let lanes: Vec<usize> = (0..lines.len()).filter(|&i| !lines[i].trim().is_empty() && depth(&lines[i]) == top).collect();
-        let lane = lanes
-            .iter()
-            .copied()
-            .find(|&i| lines[i].trim().trim_end_matches(':').eq_ignore_ascii_case("inbox"))
-            .unwrap_or(lanes[0]);
-        let at = block_end(lines, lane);
-        lines.insert(at, format!("{}{text}", "\t".repeat(top + 1)));
-    });
-}
+/// What Claude, in the pane below Home, is asked on Ctrl+S. The unread
+/// messages, the calendar and the task list go with it.
+const ASK: &str = "What should I do about the unread mail, the calendar and the tasks attached? Propose at most 8 things: tasks to add, events for the calendar, and answers to messages that need one. Leave out newsletters and notices that need nothing. Number them; I will say which to do.";
 
 /// Seconds since 1970.
 fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
 
+/// What a key in one of Home's boxes asks of the rest of gluon.
 enum Act {
     /// Message `id` opened in the Mail tab, then the key, if any, for it.
     Mail(i64, Option<String>),
@@ -1071,10 +808,6 @@ enum Act {
     Join(i64, i64),
     /// The task list in the editor, at a line.
     Edit(i64),
-    /// An answer to message `id`, from Claude's ideas, for kastrup's r.
-    Reply(i64, String),
-    /// An event was put in tock's incoming folder.
-    Import,
     /// Items in the boxes, by the box, the id and the start: the tagged
     /// ones, or else the picked one, for Claude when the keys went from a
     /// box to it.
@@ -1127,13 +860,10 @@ struct Home {
     minute: i64,
     mtime: Option<std::time::SystemTime>,
     full: bool,
-    /// Claude's ideas (Ctrl+S), in the right column while open; the
-    /// column's owner as last drawn (agenda and tasks, message, ideas);
-    /// the Ctrl+S hint on the bar as last drawn.
-    ideas: Ideas,
+    /// The right column's owner as last drawn (agenda and tasks, message,
+    /// keys); the note on the bar as last drawn.
     right: u8,
-    hint: String,
-    dir: PathBuf,
+    bar_note: String,
     /// What y copied, on the bar until the next key.
     note: String,
     /// The keys (?), in the right column while open.
@@ -1169,10 +899,8 @@ impl Home {
             minute: 0,
             mtime: None,
             full: false,
-            ideas: Ideas::new(),
             right: 0,
-            hint: String::new(),
-            dir: home.to_path_buf(),
+            bar_note: String::new(),
             note: String::new(),
             help: Frame::new(" Esc or ? closes "),
             helping: false,
@@ -1206,8 +934,6 @@ impl Home {
         self.preview.pane.wrap = true;
         self.preview.title = " Message ".into();
         self.shown = None;
-        self.ideas.frame.place(lw + 1, 2, rw, h);
-        self.ideas.load();
         self.help.place(lw + 1, 2, rw, h);
         self.help.title = " Keys at Home ".into();
         self.help.set_rows(HELP.iter().map(|l| (None, help_row(l))).collect());
@@ -1231,95 +957,41 @@ impl Home {
         std::fs::read_to_string(&self.todo).unwrap_or_default().lines().map(String::from).collect()
     }
 
-    /// Claude has the keys: its pane is focused and no ideas are open.
+    /// Claude has the keys: its pane is focused.
     fn claude_keys(&self) -> bool {
-        self.focus == CLAUDE && !self.ideas.open
+        self.focus == CLAUDE
     }
 
-    /// Ctrl+S: the ideas open, and Claude is asked for new ones when there
-    /// are none, or when they were open already.
+    /// Ctrl+S: Claude, below, is asked what to do about the unread mail,
+    /// the calendar and the tasks, which go with the question, and gets
+    /// the keys for the answer ("do 1 and 3").
     fn ask(&mut self, mail: &kastrup::app::App, cal: &tock::app::App, claude: &mut Claude) {
-        let again = self.ideas.open || self.ideas.list.is_empty();
-        if self.ideas.job.is_none() && again {
-            let file = std::fs::read_to_string(&self.views).unwrap_or_default();
-            let unread: Vec<_> = mail
-                .unread_in_views(&view_keys(&file), 20)
-                .into_iter()
-                .filter(|u| !self.purged.contains(&u.id) && !self.marked_del.contains(&u.id))
-                .collect();
-            let mut prompt = format!("{ASK}\n\nNow: {}\n\n# Unread messages\n", clock(now(), "%A %F %H:%M"));
-            for u in &unread {
-                let text: String = crust::strip_ansi(&mail.message_text(u.id, 100)).chars().take(1500).collect();
-                prompt += &format!("\n## Message {}\n{}\n", u.id, text.trim());
-            }
-            prompt += "\n# Calendar, the coming 30 days\n";
-            for a in cal.agenda(UNREAD, 100) {
-                prompt += &format!("{} {}\n", clock(a.start, "%a %F"), crust::strip_ansi(&a.text).trim());
-            }
-            let tasks: String = std::fs::read_to_string(&self.todo).unwrap_or_default().chars().take(8000).collect();
-            prompt += &format!("\n# Task list\n{tasks}\n");
-            self.ideas.msgs = unread.iter().map(|u| (u.id, format!("{}: {}", plain(&u.from), plain(&u.subject)))).collect();
-            self.ideas.start(prompt, self.dir.join(".gluon"), self.dir.join(".claude").join("CLAUDE.md"));
+        let Some(c) = claude.app() else { return };
+        let file = std::fs::read_to_string(&self.views).unwrap_or_default();
+        let unread: Vec<_> = mail
+            .unread_in_views(&view_keys(&file), 20)
+            .into_iter()
+            .filter(|u| !self.purged.contains(&u.id) && !self.marked_del.contains(&u.id))
+            .collect();
+        let mut seen = format!("Now: {}\n\n# Unread messages\n", clock(now(), "%A %F %H:%M"));
+        for u in &unread {
+            let text: String = crust::strip_ansi(&mail.message_text(u.id, 100)).chars().take(1500).collect();
+            seen += &format!("\n## kastrup:{}\n{}\n", u.id, text.trim());
         }
-        self.ideas.open = true;
+        seen += "\n# Calendar, the coming 30 days\n";
+        for a in cal.agenda(UNREAD, 100) {
+            seen += &format!("{} {}\n", clock(a.start, "%a %F"), crust::strip_ansi(&a.text).trim());
+        }
+        let tasks: String = std::fs::read_to_string(&self.todo).unwrap_or_default().chars().take(8000).collect();
+        seen += &format!("\n# Task list ({})\n{tasks}\n", self.todo.display());
+        c.attach("gluon", &seen);
+        c.ask(ASK);
+        // On the whole screen Claude has the keys already, and its own bar.
         if self.full {
-            self.full = false;
-            self.repaint(mail, cal, claude);
+            self.focus = CLAUDE;
         } else {
-            self.focus_on(self.focus, claude);
+            self.focus_on(CLAUDE, claude);
         }
-    }
-
-    /// A key while the ideas are open. Enter does the picked one: a task
-    /// goes in todo.hl and an event in tock, and both stay here; a reply
-    /// opens in kastrup.
-    fn idea_key(&mut self, k: &str, claude: &mut Claude) -> Option<Act> {
-        let f = &mut self.ideas.frame;
-        match k {
-            "DOWN" | "j" => f.step(1),
-            "UP" | "k" => f.step(-1),
-            "PgDOWN" => f.step(f.pane.h as isize),
-            "PgUP" => f.step(-(f.pane.h as isize)),
-            "ESC" | "q" => {
-                self.ideas.open = false;
-                self.focus_on(self.focus, claude);
-            }
-            "d" => {
-                self.ideas.take();
-                self.ideas.note.clear();
-                self.ideas.load();
-            }
-            "ENTER" => {
-                let idea = self.ideas.take()?;
-                let act = match idea.kind.as_str() {
-                    "task" => {
-                        add_task(&self.todo, &idea.text);
-                        self.mtime = None;
-                        self.ideas.note = format!("Added to the tasks: {}", idea.text);
-                        None
-                    }
-                    "event" => {
-                        let ok = add_event(&self.dir, &idea);
-                        self.ideas.note = if ok {
-                            format!("Added to the calendar: {} {}", idea.start, idea.text)
-                        } else {
-                            format!("Could not write the event to {}", self.dir.join(".tock/incoming").display())
-                        };
-                        ok.then_some(Act::Import)
-                    }
-                    _ => {
-                        self.ideas.open = false;
-                        self.ideas.note.clear();
-                        self.focus_on(self.focus, claude);
-                        Some(Act::Reply(idea.id, idea.text))
-                    }
-                };
-                self.ideas.load();
-                return act;
-            }
-            _ => {}
-        }
-        None
     }
 
     /// The whole tab, after another tab had the screen or it was resized.
@@ -1372,9 +1044,6 @@ impl Home {
     /// A key while a box has the keys, or Tab while Claude has them. The
     /// box moves its pick itself; what goes beyond it comes back.
     fn key(&mut self, k: &str, claude: &mut Claude) -> Option<Act> {
-        if self.ideas.open {
-            return self.idea_key(k, claude);
-        }
         self.note.clear();
         // Any key closes the keys; Esc and ? do nothing else.
         if std::mem::take(&mut self.helping) && matches!(k, "ESC" | "?" | "q") {
@@ -1551,9 +1220,7 @@ impl Home {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
-        let hint = self.ideas.hint();
-        let mark = format!("{hint}\n{}", self.note);
-        if force || now / 60 != self.minute || mark != self.hint {
+        if force || now / 60 != self.minute || self.note != self.bar_note {
             if now / 60 != self.minute {
                 self.load_agenda(cal);
             }
@@ -1561,13 +1228,13 @@ impl Home {
             let cols = self.bar.w as usize;
             let right = style::fg(
                 &format!(
-                    "{} · Tab next box · {hint} · ^Z Claude full · gluon {} ",
+                    "{} · Tab next box · ^S ideas · ^Z Claude full · gluon {} ",
                     clock(now, "%a %e %b, week %V"),
                     env!("CARGO_PKG_VERSION")
                 ),
                 245,
             );
-            self.hint = mark;
+            self.bar_note = self.note.clone();
             let tabs = tab_line(HOME);
             let fit = cols.saturating_sub(crust::display_width(&tabs) + crust::display_width(&right) + 1);
             let left = tabs + &style::fg(&crust::truncate_ansi(&self.note, fit), 156);
@@ -1581,9 +1248,8 @@ impl Home {
         }
         // While the mail box has the keys, the picked message takes the
         // place of the agenda and the tasks; with no message, they stay.
-        // Open ideas go over both.
-        let (focus, open) = (self.focus, self.ideas.open);
-        let keys = |i: usize| focus == i && !open;
+        let focus = self.focus;
+        let keys = |i: usize| focus == i;
         let preview = keys(BOX_MAIL) && self.boxes[BOX_MAIL].picked().is_some();
         if let (true, Some((id, _))) = (preview, self.boxes[BOX_MAIL].picked()) {
             if self.seen.insert(id) {
@@ -1591,15 +1257,13 @@ impl Home {
                 self.load_mail(mail);
             }
         }
-        let right = if self.ideas.open { 2 } else if self.helping { 3 } else { preview as u8 };
+        let right = if self.helping { 2 } else { preview as u8 };
         let swap = right != self.right;
         self.right = right;
         self.previewing = preview;
         let keys = [keys(BOX_MAIL), keys(BOX_AGENDA), keys(BOX_TASKS)];
         drew |= self.boxes[BOX_MAIL].draw(keys[BOX_MAIL], force);
-        if self.ideas.open {
-            drew |= self.ideas.frame.draw(true, force || swap);
-        } else if self.helping {
+        if self.helping {
             drew |= self.help.draw(true, force || swap);
         } else if preview {
             drew |= self.draw_preview(mail, force || swap);
@@ -1855,8 +1519,8 @@ fn main() {
         println!("            Tab moves from box to box; Enter opens the picked item in its tab");
         println!("            (Esc comes back), and kastrup's keys act on a picked message;");
         println!("            one you browse is marked read (R undoes it, A marks all), d");
-        println!("            marks it for deletion, and < does both. Ctrl+S asks Claude for");
-        println!("            ideas: tasks to add, events and answers; Enter does the picked one.");
+        println!("            marks it for deletion, and < does both. Ctrl+S asks Claude, below,");
+        println!("            what to do about them: tasks to add, events and answers.");
         println!("            t tags rows in any box, and Esc hands every tagged row to Claude;");
         println!("            ? shows all the keys at Home");
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
@@ -2019,15 +1683,6 @@ fn main() {
                             Some(a @ (Act::Mail(..) | Act::Compose)) => (act, next) = (Some(a), Some(MAIL)),
                             Some(a @ Act::Event(..)) => (act, next) = (Some(a), Some(CALENDAR)),
                             Some(Act::Purge(read, del)) => unseen.run(|| mail.read_and_delete(read, del)),
-                            Some(Act::Reply(id, text)) => {
-                                mail.reply_with(text);
-                                (act, next) = (Some(Act::Mail(id, Some("r".into()))), Some(MAIL));
-                            }
-                            // tock reads the event now, and the agenda again.
-                            Some(Act::Import) => {
-                                unseen.run(|| cal.after_wait(None));
-                                home.minute = 0;
-                            }
                             Some(Act::Context(items)) => {
                                 let text: Vec<String> = items.iter()
                                     .map(|&(b, id, start)| home.item(b, id, start, &mail, &cal))
@@ -2150,8 +1805,6 @@ fn main() {
         // a popup or the editor of Claude's drew over them.
         if tab == HOME {
             let over = claude.app().is_some_and(|c| c.take_overdraw());
-            // Claude's ideas came: the box shows them, or the bar counts them.
-            home.ideas.poll();
             if home.paint(&mail, &cal, over) {
                 if let Some(c) = claude.app() {
                     c.place_cursor();
@@ -2240,40 +1893,5 @@ mod tests {
     fn a_long_task_wraps_at_spaces_and_ends_in_dots() {
         assert_eq!(wrap("one two three four", 9, 3), ["one two", "three", "four"]);
         assert_eq!(wrap("one two three four", 9, 2), ["one two", "three …"]);
-    }
-    #[test]
-    fn an_event_time_becomes_ics_and_a_bad_one_is_left_out() {
-        assert_eq!(ics_time("2026-11-03 09:30").as_deref(), Some("20261103T093000"));
-        assert_eq!(ics_time("2026-11-03").as_deref(), Some("20261103"));
-        assert_eq!(ics_time("3 Nov"), None);
-        assert_eq!(ics_time("2026-11-03 9:30"), None);
-    }
-
-    #[test]
-    fn ideas_come_from_the_json_in_the_answer_and_bad_ones_drop() {
-        let msgs = [(7, "Alice: Lunch".to_string())].into_iter().collect();
-        let answer = r#"Here: [{"kind":"task","text":"Buy milk","why":"out"},
-            {"kind":"event","text":"Dentist","start":"next week"},
-            {"kind":"reply","id":"7","text":"Yes.","why":"Alice asks"},
-            {"kind":"reply","id":8,"text":"No."}]"#;
-        let ideas = parse_ideas(answer, &msgs).unwrap();
-        assert_eq!(ideas.iter().map(|i| i.kind.as_str()).collect::<Vec<_>>(), ["task", "reply"]);
-        assert_eq!(ideas[1].id, 7);
-        assert!(parse_ideas("no list", &msgs).is_err());
-        let fenced = "[a note] first:\n```json\n[{\"kind\":\"task\",\"text\":\"Buy milk\"}]\n```\nThen [more].";
-        assert_eq!(parse_ideas(fenced, &msgs).unwrap().len(), 1);
-    }
-
-    #[test]
-    fn a_task_goes_at_the_end_of_the_inbox_lane() {
-        let path = std::env::temp_dir().join(format!("gluon-test-{}.hl", std::process::id()));
-        std::fs::write(&path, "\tWork\n\t\tAsk\n\tInbox\n\t\tBike\n\t\t\tChain\n\tHome\n").unwrap();
-        add_task(&path, "Buy milk");
-        let text = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(text, "\tWork\n\t\tAsk\n\tInbox\n\t\tBike\n\t\t\tChain\n\t\tBuy milk\n\tHome\n");
-        std::fs::write(&path, "").unwrap();
-        add_task(&path, "Buy milk");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "Inbox\n\tBuy milk");
-        let _ = std::fs::remove_file(&path);
     }
 }

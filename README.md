@@ -60,22 +60,13 @@ every tagged row of all three boxes with your next prompt, or else the row
 picked in that box: two messages, an event and three tasks, say, to talk
 about together. The tags go with them.
 
-**Ctrl+S** at Home asks Claude what to do about the unread mail, the
-agenda and the tasks. Its ideas show on the right, in place of the agenda
-and the tasks: tasks to add, events for the calendar, and answers to
-messages. Enter does the picked one:
-- a task goes at the end of the Inbox lane in todo.hl (or of the first
-  lane);
-- an event goes in tock, which then shows its day;
-- an answer opens as kastrup's reply, with Claude's text written in, so
-  you change it, send it or drop it at the review. Nothing is sent
-  without you.
-
-d drops an idea, Esc closes the box, and Ctrl+S opens it again with the
-ideas left, or asks Claude again while it is open. Each ask is one
-`claude -p` run, of about 10 to 30 seconds, with no tools and none of
-your Claude Code settings but `~/.claude/CLAUDE.md`, so the answers
-follow your writing rules. Between asks nothing runs.
+**Ctrl+S** at Home asks Claude, in the pane below, what to do about the
+unread mail, the agenda and the tasks, which go with the question. Claude
+numbers at most 8 ideas (tasks to add, events for the calendar, answers to
+messages) and has the keys, so you answer "do 1 and 3" or talk them over.
+A task goes in todo.hl, an event on the calendar, and an answer in
+kastrup's drafts, which `+` opens; nothing is sent without you. Each press
+adds the unread mail, the agenda and the task list to the session.
 
 `+` in any box opens kastrup's list of drafts, postponed and scheduled
 messages, to send one or start a new one; Home comes back when you are
