@@ -27,7 +27,8 @@ Home has four parts, three boxes over Claude:
   calendar and tasks are. **Ctrl+Z** gives it the whole screen and back.
 
 **Tab** moves the keys from box to box and on to Claude (**Shift+Tab**
-goes back, **Esc** jumps to Claude). In a box, the arrows pick a row,
+goes back, **Esc** jumps to Claude). In a box, the arrows pick a row
+(Down on the last row goes round to the first, and Up the other way),
 the box's keys show in its bottom edge, and `?` shows all the keys
 at Home:
 - Mail: the picked message shows on the right, in place of the agenda
