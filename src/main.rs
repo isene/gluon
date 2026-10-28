@@ -871,6 +871,9 @@ struct Home {
     /// What the boxes were made from, so a wake with nothing new draws
     /// nothing: kastrup's database files, the minute, todo.hl's time.
     sig: Option<(u64, u128, u128)>,
+    /// kastrup's "↑ Sending to X…" when the mail box was made, if a mail
+    /// was on the wire.
+    sending: Option<String>,
     minute: i64,
     mtime: Option<std::time::SystemTime>,
     full: bool,
@@ -910,6 +913,7 @@ impl Home {
             views: home.join(".gluon").join("views"),
             todo: home.join(".tasks").join("todo.hl"),
             sig: None,
+            sending: None,
             minute: 0,
             mtime: None,
             full: false,
@@ -1230,8 +1234,10 @@ impl Home {
         }
         let mut drew = false;
         let sig = mail.db_signature();
-        if force || self.sig != Some(sig) {
+        let sending = mail.send_note();
+        if force || self.sig != Some(sig) || sending != self.sending {
             self.sig = Some(sig);
+            self.sending = sending;
             self.load_mail(mail);
         }
         let now = std::time::SystemTime::now()
@@ -1347,8 +1353,9 @@ impl Home {
             let from = crust::truncate_ansi(&plain(&u.from), 18);
             let pad = " ".repeat(18usize.saturating_sub(crust::display_width(&from)));
             let line = format!(
-                "{}{mark} {when:>6} {} {}  {}",
+                "{}{mark}{} {when:>6} {} {}  {}",
                 style::styled(&format!(" {} ", u.view), Some(255), Some(u.colour), ""),
+                u.flag,
                 style::fg(&u.icon, u.kind),
                 style::fg(&(from + &pad), c),
                 style::fg(&plain(&u.subject), c),
@@ -1360,7 +1367,8 @@ impl Home {
         let marks: String = [("R", r), ("D", d)].iter().filter(|m| m.1 > 0).map(|(k, n)| format!(" · {k} {n}")).collect();
         let b = &mut self.boxes[BOX_MAIL];
         let order = if self.oldest { " · oldest first" } else { "" };
-        b.title = format!(" Unread · {}{more}{marks}{order} ", list.len());
+        let sending = self.sending.as_ref().map_or(String::new(), |n| format!(" · {n}"));
+        b.title = format!(" Unread · {}{more}{marks}{order}{sending} ", list.len());
         b.set_rows(rows);
     }
 
@@ -1605,6 +1613,12 @@ fn main() {
         // scribe wakes only to write unsaved text to its recovery file.
         if let Some(w) = tasks.ed.as_ref().and_then(|e| e.before_wait()) {
             wait = wait.min(w);
+        }
+        // kastrup picks up a finished send in its before_wait; Home shows
+        // it now, not after the wait.
+        let sent = mail.take_sent();
+        if sent.is_some() {
+            wait = 0;
         }
         let mut key = Input::getchr(Some(wait));
         let mut act = None;
@@ -1851,6 +1865,13 @@ fn main() {
                 _ => home.repaint(&mail, &cal, &mut claude),
             }
             continue;
+        }
+        // A mail sent from Home: kastrup's "Sent to X", or why it failed,
+        // in the bar until the next key, as kastrup shows it in its own.
+        if let Some((text, colour)) = sent {
+            if tab == HOME {
+                home.note = style::fg(&format!(" {text}"), colour);
+            }
         }
         // Home's boxes, when their mail, agenda or tasks changed, or when
         // a popup or the editor of Claude's drew over them.

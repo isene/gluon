@@ -45,7 +45,10 @@ at Home:
   forwards, s files, h snoozes, v lists the attachments, * stars, and so
   on), and Home comes back when they are done; I, c and V (the images)
   stay in the Mail tab to show their answer, and Esc comes back. Each row has the colour and icon of its kind,
-  as in kastrup.
+  as in kastrup. While a mail you send is on its way, the box's title
+  says "↑ Sending to …"; then the bar says "Sent to …", or why it
+  failed, until the next key. A message you replied to gets kastrup's ←
+  (→ forwarded, ↔ both).
 - Agenda: Enter opens the event in the Calendar tab, and y copies it as
   `tock:<id>` with its title and time. Ctrl+Y copies all of the event.
   A green ▶ marks an event with a Teams, Zoom or Meet link, and J joins
