@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "gluon"
-version = "0.15.5"
+version = "0.15.6"
 dependencies = [
  "deck",
  "fe2o3-crust",

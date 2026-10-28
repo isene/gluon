@@ -1408,10 +1408,10 @@ impl Home {
     }
 }
 
-/// The kastrup view key `k` opens: Alt+digit on any tab, the digit alone
-/// at Home.
-fn view_key(k: &str, tab: usize) -> Option<String> {
-    let d = k.strip_prefix("M-").unwrap_or(if tab == HOME { k } else { "" });
+/// The kastrup view key `k` opens: Ctrl+digit anywhere, and the digit
+/// alone when `bare` (a box at Home has the keys).
+fn view_key(k: &str, bare: bool) -> Option<String> {
+    let d = k.strip_prefix("C-").unwrap_or(if bare { k } else { "" });
     (d.len() == 1 && d.as_bytes()[0].is_ascii_digit()).then(|| d.to_string())
 }
 
@@ -1439,8 +1439,8 @@ const HELP: &[&str] = &[
     "Anywhere at Home",
     "^S  ideas from Claude     ^Z  Claude on the whole screen",
     "^A  back to the last tab  ^O  the next tab",
-    "0-9  that kastrup view in the Mail tab; Alt+0-9 on any tab",
-    "Alt+C Alt+T  the Calendar, the Tasks, from any tab",
+    "0-9  that kastrup view in the Mail tab; ^0-9 from anywhere",
+    "^⇧C ^⇧T  the Calendar, the Tasks, from anywhere",
     "^L  draw it all again     Q   quit",
 ];
 
@@ -1596,20 +1596,22 @@ fn main() {
         }
         let mut key = Input::getchr(Some(wait));
         let mut act = None;
-        // While Claude or scribe has the keys, Q, Esc and Alt are theirs: a
-        // fast Esc and a key read as Alt.
+        // While Claude or scribe has the keys, Q and Esc are theirs.
         let to_claude = tab == HOME && (home.full || home.claude_keys()) && matches!(claude, Claude::On(_));
         let typing = to_claude || (tab == TASKS && !tasks.board);
-        // A kastrup view: Alt+digit on any tab, the digit alone at Home. In
-        // the Mail tab kastrup takes the digit as its own key.
-        let mut view = key.as_deref().filter(|_| !typing).and_then(|k| view_key(k, tab));
+        // Straight to a tab, even while Claude or scribe types: no app here
+        // takes Ctrl+digit, Ctrl+Shift+C or Ctrl+Shift+T. A kastrup view
+        // opens on Ctrl+digit, or on the digit alone in a box at Home; in
+        // the Mail tab kastrup takes the digit as its own key. Alt is
+        // glass's.
+        let mut view = key.as_deref().and_then(|k| view_key(k, tab == HOME && !typing));
         if tab == MAIL && view.is_some() {
             key = view.take();
         }
         let mut next = match key.as_deref() {
             _ if view.is_some() => Some(MAIL),
-            Some("M-c") if !typing => Some(CALENDAR),
-            Some("M-t") if !typing => Some(TASKS),
+            Some("C-S-C") if tab != CALENDAR => Some(CALENDAR),
+            Some("C-S-T") if tab != TASKS => Some(TASKS),
             Some("C-O") => Some((tab + 1) % TABS.len()),
             // Q ends gluon. kastrup waits for a send in flight and says so
             // in the Mail tab.
@@ -1871,13 +1873,14 @@ mod tests {
     const TODO: &str = "\tInbox\n\tHome\n\t\tPaint\n\t\t[O] Bike\n\t\t\tChain\n\t\t[x] Milk\n\tWork\n\t\t[-] Ask\n";
 
     #[test]
-    fn a_view_key_is_alt_digit_anywhere_or_a_digit_at_home() {
-        assert_eq!(view_key("M-3", CALENDAR).as_deref(), Some("3"));
-        assert_eq!(view_key("M-0", TASKS).as_deref(), Some("0"));
-        assert_eq!(view_key("3", HOME).as_deref(), Some("3"));
-        assert_eq!(view_key("3", CALENDAR), None);
-        assert_eq!(view_key("M-c", HOME), None);
-        assert_eq!(view_key("x", HOME), None);
+    fn a_view_key_is_ctrl_digit_anywhere_or_a_bare_digit_in_a_box() {
+        assert_eq!(view_key("C-3", false).as_deref(), Some("3"));
+        assert_eq!(view_key("C-0", true).as_deref(), Some("0"));
+        assert_eq!(view_key("3", true).as_deref(), Some("3"));
+        assert_eq!(view_key("3", false), None);
+        assert_eq!(view_key("M-3", true), None);
+        assert_eq!(view_key("C-S", true), None);
+        assert_eq!(view_key("x", true), None);
     }
 
     #[test]
