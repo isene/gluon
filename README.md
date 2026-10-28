@@ -76,6 +76,10 @@ done.
 Esc in the tab a box opened brings you back Home; in scribe, Esc is
 scribe's, and Ctrl+A goes Home.
 
+A digit at Home opens the Mail tab on that kastrup view, and Alt+digit does
+the same from any tab. Alt+C opens the Calendar and Alt+T the Tasks. These
+Alt keys, like `Q`, wait while Claude or scribe has the keys.
+
 **Ctrl+O** moves to the next tab. **Ctrl+A** jumps Home and back, to the
 box that had the keys; Claude gets what the tab you came from had on screen (the message, the week, the
 task list) with your next prompt. A tab out of view goes on fetching
