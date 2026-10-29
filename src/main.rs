@@ -919,7 +919,7 @@ impl Auto {
         if self.times.is_empty() {
             return String::new();
         }
-        style::styled(&format!(" ◷ ideas {} ", self.list()), Some(16), Some(214), "b") + "  "
+        style::styled(&format!(" ◷ ideas {} ", self.list()), Some(16), Some(136), "b") + "  "
     }
 }
 
