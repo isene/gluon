@@ -12,7 +12,7 @@ parts of one screen, so every key you know from them works the same here.
 | Tab | What it is | Files |
 |---|---|---|
 | Home | unread mail, the agenda and the tasks, over a Claude pane | `~/.gluon/` |
-| Mail | kastrup: email, RSS and chat | `~/.kastrup/` |
+| Messages | kastrup: email, RSS and chat | `~/.kastrup/` |
 | Calendar | tock: calendar with ephemeris | `~/.tock/` |
 | Tasks | scribe on your task list, or the list as a board | `~/.tasks/todo.hl` |
 
@@ -31,11 +31,11 @@ goes back, **Esc** jumps to Claude). In a box, the arrows pick a row
 (Down on the last row goes round to the first, and Up the other way),
 the box's keys show in its bottom edge, and `?` shows all the keys
 at Home:
-- Mail: the picked message shows on the right, in place of the agenda
+- Messages: the picked message shows on the right, in place of the agenda
   and the tasks, and stays unread; Space scrolls it and, at its end, goes
   on to the next message. Shift+Left scrolls back, and Shift+Down and
   Shift+Up scroll a line.
-  Enter opens it in the Mail tab. A message you browse gets an R mark,
+  Enter opens it in the Messages tab. A message you browse gets an R mark,
   which R takes off or puts back; A marks them all, and d marks one for
   deletion. Marked messages stay in the box until `<` marks the R ones
   read in kastrup and deletes the D ones; the box's title counts both
@@ -44,7 +44,7 @@ at Home:
   kastrup's keys for one message work too (r replies, f
   forwards, s files, h snoozes, v lists the attachments, * stars, and so
   on), and Home comes back when they are done; I, c and V (the images)
-  stay in the Mail tab to show their answer, and Esc comes back. Each row has the colour and icon of its kind,
+  stay in the Messages tab to show their answer, and Esc comes back. Each row has the colour and icon of its kind,
   as in kastrup. While a mail you send is on its way, the box's title
   says "↑ Sending to …"; then the bar says "Sent to …", or why it
   failed, until the next key. A message you replied to gets kastrup's ←
@@ -98,7 +98,7 @@ done.
 Esc in the tab a box opened brings you back Home; in scribe, Esc is
 scribe's, and Ctrl+A goes Home.
 
-A digit at Home opens the Mail tab on that kastrup view, and Ctrl+digit
+A digit at Home opens the Messages tab on that kastrup view, and Ctrl+digit
 does the same from anywhere, even while Claude or scribe has the keys.
 Ctrl+Shift+C opens the Calendar and Ctrl+Shift+T the Tasks, also from
 anywhere. Ctrl+digit and Ctrl+Shift need a terminal with the kitty keyboard

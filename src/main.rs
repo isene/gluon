@@ -11,7 +11,7 @@ use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
-const TABS: [&str; 4] = ["Home", "Mail", "Calendar", "Tasks"];
+const TABS: [&str; 4] = ["Home", "Messages", "Calendar", "Tasks"];
 const HOME: usize = 0;
 const MAIL: usize = 1;
 const CALENDAR: usize = 2;
@@ -21,8 +21,8 @@ const TASKS: usize = 3;
 const BRIEF: &str = "# gluon's Claude pane
 
 You run in the bottom half of the Home tab of gluon, a terminal app with
-four tabs: Home (unread mail, the agenda and the tasks over this pane),
-Mail (kastrup), Calendar (tock) and Tasks.
+four tabs: Home (unread messages, the agenda and the tasks over this
+pane), Messages (kastrup), Calendar (tock) and Tasks.
 
 Ctrl+O moves to the next tab, Ctrl+A jumps Home and back, and Ctrl+Z
 gives this pane the whole screen and back. When Ctrl+A comes from another
@@ -1595,12 +1595,12 @@ const HELP: &[&str] = &[
     "^Y  copy all of the message or event, or the task and its lines",
     "Tab  the next box; Shift+Tab back; Esc Claude",
     "+  kastrup's drafts, postponed and scheduled mail",
-    "Mail",
+    "Messages",
     "Space  scroll the message, at its end the next one",
     "R A d  mark read or not, all read, for deletion",
     "<  mark the R ones read and delete the D ones",
     "i  oldest first or newest; r f s h * as in kastrup",
-    "v V  the attachments; the images, in the Mail tab",
+    "v V  the attachments; the images, in the Messages tab",
     "Agenda and Tasks",
     "J  join the meeting of an event marked ▶",
     "x d <  tick a task done; mark it for deletion; delete",
@@ -1608,7 +1608,7 @@ const HELP: &[&str] = &[
     "Anywhere at Home",
     "^S  ideas from Claude     ^Z  Claude on the whole screen",
     "^A  back to the last tab  ^O  the next tab",
-    "0-9  that kastrup view in the Mail tab; ^0-9 from anywhere",
+    "0-9  that kastrup view in the Messages tab; ^0-9 from anywhere",
     "^⇧C ^⇧T  the Calendar, the Tasks, from anywhere",
     "^⇧S  ^S by itself at the times in ~/.gluon/auto",
     "^L  draw it all again     Q   quit",
@@ -1710,7 +1710,7 @@ fn main() {
         println!("            (09:00, 15:00 and a look back at 21:00 at first), and again to stop;");
         println!("            t tags rows in any box, and Esc hands every tagged row to Claude;");
         println!("            ? shows all the keys at Home");
-        println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
+        println!("  Messages  kastrup, with its own keys and ~/.kastrup/");
         println!("  Calendar  tock, with its own keys and ~/.tock/");
         println!("  Tasks     ~/.tasks/todo.hl in scribe, or as a board (Ctrl+B switches)");
         println!();
