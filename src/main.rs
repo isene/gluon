@@ -260,7 +260,9 @@ fn wrap(s: &str, w: usize, n: usize) -> Vec<String> {
 
 /// `s` cut or filled with spaces to `w` columns.
 fn pad(s: &str, w: usize) -> String {
-    let t = crust::truncate_ansi(s, w);
+    // truncate_ansi ends with a reset, which would end a background before
+    // the filling spaces: a shaded card would stop at its text.
+    let t = if crust::display_width(s) > w { crust::truncate_ansi(s, w) } else { s.to_string() };
     let n = w.saturating_sub(crust::display_width(&t));
     t + &" ".repeat(n)
 }
@@ -358,7 +360,7 @@ impl Tasks {
                 // An empty cell, picked, shows as a slot.
                 if self.pick == (li, c, 0) && !lane.cards.iter().any(|x| x.col == c) {
                     at = out.len();
-                    cell.push(style::styled(&" ".repeat(cw), None, Some(239), ""));
+                    cell.push(style::styled(&" ".repeat(cw), None, Some(240), ""));
                 }
                 // Each card a block of its own shade, a blank row between two.
                 for (i, card) in lane.cards.iter().filter(|x| x.col == c).enumerate() {
@@ -370,9 +372,9 @@ impl Tasks {
                         at = out.len() + cell.len();
                     }
                     let (fg, bg) = match (picked, c == n - 1) {
-                        (true, _) => (255, 239),
+                        (true, _) => (255, 240),
                         (_, true) => (243, 234),
-                        _ => (252, 236),
+                        _ => (252, 234),
                     };
                     for line in wrap(&card.text, cw.saturating_sub(2), 3) {
                         cell.push(style::styled(&pad(&format!(" {line}"), cw), Some(fg), Some(bg), ""));
@@ -1966,6 +1968,13 @@ mod tests {
         f.sel = 5;
         f.step(1);
         assert_eq!(f.sel, 5);
+    }
+
+    #[test]
+    fn a_shaded_card_is_shaded_to_its_right_edge() {
+        let line = style::styled(&pad(" Buy milk", 12), Some(252), Some(234), "");
+        assert_eq!(line, "\x1b[38;5;252;48;5;234m Buy milk   \x1b[0m");
+        assert_eq!(crust::strip_ansi(&pad(" A long task name", 8)).chars().count(), 8);
     }
 
     #[test]
