@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "gluon"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "deck",
  "fe2o3-crust",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "kastrup"
-version = "0.3.105"
+version = "0.3.106"
 dependencies = [
  "base64",
  "fe2o3-crust",
