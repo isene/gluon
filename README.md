@@ -81,7 +81,7 @@ each Ctrl+S adds them to the question: a search of your archive for what
 waits on you, say. Without the file, nothing else is asked.
 
 **Ctrl+Shift+S** turns timed ideas on and off, from any tab. While on,
-gluon asks the Ctrl+S question by itself at 09:00 and 15:00, and an orange
+gluon asks the Ctrl+S question by itself at 09:00, 15:00 and 21:00, and an orange
 `◷ ideas 09:00 15:00 21:00` on every tab's top line says so. A time from
 18:00 on looks back instead: what got done, what moves to tomorrow, and
 what you can let go. The times are in `~/.gluon/auto`.
