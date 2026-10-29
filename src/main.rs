@@ -358,20 +358,24 @@ impl Tasks {
                 // An empty cell, picked, shows as a slot.
                 if self.pick == (li, c, 0) && !lane.cards.iter().any(|x| x.col == c) {
                     at = out.len();
-                    cell.push(style::styled(&" ".repeat(cw), None, Some(238), ""));
+                    cell.push(style::styled(&" ".repeat(cw), None, Some(239), ""));
                 }
+                // Each card a block of its own shade, a blank row between two.
                 for (i, card) in lane.cards.iter().filter(|x| x.col == c).enumerate() {
+                    if i > 0 {
+                        cell.push(" ".repeat(cw));
+                    }
                     let picked = self.pick == (li, c, i);
                     if picked {
                         at = out.len() + cell.len();
                     }
-                    for (j, line) in wrap(&card.text, cw.saturating_sub(2), 3).iter().enumerate() {
-                        let t = pad(&format!("{}{line}", if j == 0 { "• " } else { "  " }), cw);
-                        cell.push(match (picked, c == n - 1) {
-                            (true, _) => style::styled(&t, Some(255), Some(238), ""),
-                            (_, true) => style::fg(&t, 240),
-                            _ => style::fg(&t, 252),
-                        });
+                    let (fg, bg) = match (picked, c == n - 1) {
+                        (true, _) => (255, 239),
+                        (_, true) => (243, 234),
+                        _ => (252, 236),
+                    };
+                    for line in wrap(&card.text, cw.saturating_sub(2), 3) {
+                        cell.push(style::styled(&pad(&format!(" {line}"), cw), Some(fg), Some(bg), ""));
                     }
                 }
             }
