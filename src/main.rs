@@ -813,7 +813,10 @@ impl Frame {
 
 /// What Claude, in the pane below Home, is asked on Ctrl+S. The unread
 /// messages, the calendar and the task list go with it.
-const ASK: &str = "What should I do about the unread mail, the calendar and the tasks attached? Propose at most 8 things: tasks to add, events for the calendar, answers to messages that need one, and follow-ups I may miss (a task waiting on someone, an event to prepare for). Leave out newsletters and notices that need nothing. Number them; I will say which to do. End with one short reflection on the days ahead: what matters most in them, and one way to meet it.";
+const ASK: &str = "What should I do about the unread mail, the calendar and the tasks attached? Propose at most 8 things: tasks to add, events for the calendar, answers to messages that need one, and follow-ups I may miss (a task waiting on someone, an event to prepare for, mail I sent that got no answer). Leave out newsletters and notices that need nothing. Number them; I will say which to do. End with one short reflection on the days ahead: what matters most in them, and one way to meet it.";
+
+/// What a timed sweep from 18:00 on asks instead.
+const EVENING: &str = "Look back on today with the mail, the calendar and the tasks attached, and what we spoke of earlier today. What got done, what should move to tomorrow, and what can I let go? Propose at most 5 things, numbered; I will say which to do. End with one short reflection on the day.";
 
 /// Seconds since 1970.
 fn now() -> i64 {
@@ -821,10 +824,10 @@ fn now() -> i64 {
 }
 
 /// The times of a timed sweep when ~/.gluon/auto is empty.
-const AUTO_TIMES: &str = "09:00 15:00";
+const AUTO_TIMES: &str = "09:00 15:00 21:00";
 
 /// Ctrl+S by itself at set times of the day, while ~/.gluon/auto is
-/// there. The file holds the times; Ctrl+Shift+S moves it to auto.off and
+/// there; from 18:00 it asks EVENING instead. The file holds the times; Ctrl+Shift+S moves it to auto.off and
 /// back, so they stay. ~/.gluon/auto.last has when the last one ran, so a
 /// time that passed while the laptop slept runs once on waking, the same
 /// day. Off, none of this runs; on, gluon wakes for it at the times alone.
@@ -1121,7 +1124,7 @@ impl Home {
     /// Ctrl+S: Claude, below, is asked what to do about the unread mail,
     /// the calendar and the tasks, which go with the question, and gets
     /// the keys for the answer ("do 1 and 3").
-    fn ask(&mut self, mail: &kastrup::app::App, cal: &tock::app::App, claude: &mut Claude, keys: bool) {
+    fn ask(&mut self, mail: &kastrup::app::App, cal: &tock::app::App, claude: &mut Claude, question: &str, keys: bool) {
         let Some(c) = claude.app() else { return };
         let file = std::fs::read_to_string(&self.views).unwrap_or_default();
         let unread: Vec<_> = mail
@@ -1138,13 +1141,17 @@ impl Home {
         for a in cal.agenda(UNREAD, 100) {
             seen += &format!("{} {}\n", clock(a.start, "%a %F"), crust::strip_ansi(&a.text).trim());
         }
+        seen += "\n# Mail I sent 5 to 30 days ago that nothing has answered\n";
+        for (id, to, subject, time) in mail.unanswered(5, 30, 10) {
+            seen += &format!("kastrup:{id} {} to {}: {subject}\n", clock(time, "%a %F"), to.chars().take(80).collect::<String>());
+        }
         let tasks: String = std::fs::read_to_string(&self.todo).unwrap_or_default().chars().take(8000).collect();
         seen += &format!("\n# Task list ({})\n{tasks}\n", self.todo.display());
         c.attach("gluon", &seen);
         // ~/.gluon/sweep, when there is one: steps of the user's own for
         // Claude to take before it proposes, such as a search elsewhere.
         let sweep = std::fs::read_to_string(self.views.with_file_name("sweep")).unwrap_or_default();
-        c.ask(&if sweep.trim().is_empty() { ASK.to_string() } else { format!("{ASK}\n\n{}", sweep.trim()) });
+        c.ask(&if sweep.trim().is_empty() { question.to_string() } else { format!("{question}\n\n{}", sweep.trim()) });
         // A timed sweep leaves the keys where they are.
         if !keys {
             return;
@@ -1700,7 +1707,7 @@ fn main() {
         println!("            marks it for deletion, and < does both. Ctrl+S asks Claude, below,");
         println!("            what to do about them: tasks to add, events and answers.");
         println!("            Ctrl+Shift+S asks it by itself at the times in ~/.gluon/auto");
-        println!("            (09:00 and 15:00 at first), and again to stop;");
+        println!("            (09:00, 15:00 and a look back at 21:00 at first), and again to stop;");
         println!("            t tags rows in any box, and Esc hands every tagged row to Claude;");
         println!("            ? shows all the keys at Home");
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
@@ -1774,10 +1781,11 @@ fn main() {
         // A timed sweep: Ctrl+S by itself, the keys left where they are.
         if let Some(t) = auto.due(now()) {
             auto.done(t);
+            let question = if clock(t, "%H").as_str() >= "18" { EVENING } else { ASK };
             if tab == HOME {
-                home.ask(&mail, &cal, &mut claude, false);
+                home.ask(&mail, &cal, &mut claude, question, false);
             } else {
-                unseen.run(|| home.ask(&mail, &cal, &mut claude, false));
+                unseen.run(|| home.ask(&mail, &cal, &mut claude, question, false));
             }
             home.note = format!(" Ideas from Claude, asked at {}", clock(t, "%H:%M"));
         }
@@ -1895,7 +1903,7 @@ fn main() {
                             next = Some(HOME);
                         }
                     }
-                    _ if k == "C-S" => home.ask(&mail, &cal, &mut claude, true),
+                    _ if k == "C-S" => home.ask(&mail, &cal, &mut claude, ASK, true),
                     // Home and Claude drawn again from the start.
                     _ if k == "C-L" => {
                         home.repaint(&mail, &cal, &mut claude);
