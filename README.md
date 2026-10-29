@@ -68,7 +68,8 @@ about together. The tags go with them.
 **Ctrl+S** at Home asks Claude, in the pane below, what to do about the
 unread mail, the agenda and the tasks, which go with the question. Claude
 numbers at most 8 ideas (tasks to add, events for the calendar, answers to
-messages) and has the keys, so you answer "do 1 and 3" or talk them over.
+messages, follow-ups you may miss), ends with one short reflection on the
+days ahead, and has the keys, so you answer "do 1 and 3" or talk them over.
 A task goes in todo.hl, an event on the calendar, and an answer in
 kastrup's drafts, which `+` opens; nothing is sent without you. Each press
 adds the unread mail, the agenda and the task list to the session.
@@ -76,6 +77,14 @@ adds the unread mail, the agenda and the task list to the session.
 To look wider, write the steps in `~/.gluon/sweep`, in your own words, and
 each Ctrl+S adds them to the question: a search of your archive for what
 waits on you, say. Without the file, nothing else is asked.
+
+**Ctrl+Shift+S** turns timed ideas on and off, from any tab. While on,
+gluon asks the Ctrl+S question by itself at 09:00 and 15:00, and an orange
+`◷ ideas 09:00 15:00` on every tab's top line says so. The times are in
+`~/.gluon/auto` (write `09:00 15:00 21:00` for a third). A time that passed
+while the laptop slept is asked once on waking, the same day. The answer
+waits in the pane below Home, and the keys stay where they were. gluon
+wakes for it at those times alone.
 
 `+` in any box opens kastrup's list of drafts, postponed and scheduled
 messages, to send one or start a new one; Home comes back when you are

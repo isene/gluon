@@ -96,9 +96,13 @@ fn tab_line(active: usize) -> String {
         }
         line.push_str("  ");
     }
+    line.push_str(&BADGE.lock().map(|b| b.clone()).unwrap_or_default());
     line.push_str(&style::fg("^O ", 240));
     line
 }
+
+/// The timed sweeps' mark for the top line, empty while they are off.
+static BADGE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
 /// A tab out of view still does its idle work (new mail, scheduled
 /// sends, alarms, Claude's answer), with what it draws thrown away so it
@@ -809,11 +813,139 @@ impl Frame {
 
 /// What Claude, in the pane below Home, is asked on Ctrl+S. The unread
 /// messages, the calendar and the task list go with it.
-const ASK: &str = "What should I do about the unread mail, the calendar and the tasks attached? Propose at most 8 things: tasks to add, events for the calendar, and answers to messages that need one. Leave out newsletters and notices that need nothing. Number them; I will say which to do.";
+const ASK: &str = "What should I do about the unread mail, the calendar and the tasks attached? Propose at most 8 things: tasks to add, events for the calendar, answers to messages that need one, and follow-ups I may miss (a task waiting on someone, an event to prepare for). Leave out newsletters and notices that need nothing. Number them; I will say which to do. End with one short reflection on the days ahead: what matters most in them, and one way to meet it.";
 
 /// Seconds since 1970.
 fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
+/// The times of a timed sweep when ~/.gluon/auto is empty.
+const AUTO_TIMES: &str = "09:00 15:00";
+
+/// Ctrl+S by itself at set times of the day, while ~/.gluon/auto is
+/// there. The file holds the times; Ctrl+Shift+S moves it to auto.off and
+/// back, so they stay. ~/.gluon/auto.last has when the last one ran, so a
+/// time that passed while the laptop slept runs once on waking, the same
+/// day. Off, none of this runs; on, gluon wakes for it at the times alone.
+struct Auto {
+    file: PathBuf,
+    /// Minutes after midnight, earliest first; none while off.
+    times: Vec<i64>,
+    last: i64,
+    /// The first time after `last`. A wake compares the clock with it
+    /// alone: mktime looks at /etc/localtime on every call.
+    next: i64,
+}
+
+impl Auto {
+    fn load(dir: &Path) -> Auto {
+        let file = dir.join(".gluon/auto");
+        let last = std::fs::read_to_string(file.with_extension("last"))
+            .ok()
+            .and_then(|t| t.trim().parse().ok())
+            .unwrap_or_else(now);
+        let mut auto = Auto { file, times: Vec::new(), last, next: i64::MAX };
+        auto.read();
+        auto
+    }
+
+    fn read(&mut self) {
+        self.times = match std::fs::read_to_string(&self.file) {
+            Ok(t) if t.trim().is_empty() => times_of(AUTO_TIMES),
+            Ok(t) => times_of(&t),
+            Err(_) => Vec::new(),
+        };
+        self.plan();
+        if let Ok(mut b) = BADGE.lock() {
+            *b = self.badge();
+        }
+    }
+
+    /// Ctrl+Shift+S. Turned on, only the times still to come run.
+    fn toggle(&mut self) {
+        let off = self.file.with_extension("off");
+        if self.times.is_empty() {
+            if std::fs::rename(&off, &self.file).is_err() {
+                let _ = std::fs::write(&self.file, format!("{AUTO_TIMES}\n"));
+            }
+            self.done(now());
+        } else {
+            let _ = std::fs::rename(&self.file, &off);
+        }
+        self.read();
+    }
+
+    fn plan(&mut self) {
+        let l = self.last;
+        self.next = self.times.iter().map(|&m| at(l, m)).filter(|&s| s > l).min()
+            .or_else(|| self.times.first().map(|&m| at(l + 86400, m)))
+            .unwrap_or(i64::MAX);
+    }
+
+    /// Seconds until the next time, for the main loop's wait.
+    fn wait(&self, t: i64) -> u64 {
+        (self.next - t).clamp(1, 86400) as u64
+    }
+
+    /// The latest of today's times that has passed and not run yet.
+    fn due(&mut self, t: i64) -> Option<i64> {
+        if t < self.next {
+            return None;
+        }
+        let due = self.times.iter().map(|&m| at(t, m)).filter(|&s| s <= t && s > self.last).max();
+        if due.is_none() {
+            // A time missed on an earlier day is not caught up.
+            self.last = self.last.max(at(t, 0) - 1);
+            self.plan();
+        }
+        due
+    }
+
+    fn done(&mut self, t: i64) {
+        self.last = t;
+        self.plan();
+        let _ = std::fs::write(self.file.with_extension("last"), format!("{t}\n"));
+    }
+
+    fn list(&self) -> String {
+        self.times.iter().map(|m| format!("{:02}:{:02}", m / 60, m % 60)).collect::<Vec<_>>().join(" ")
+    }
+
+    fn badge(&self) -> String {
+        if self.times.is_empty() {
+            return String::new();
+        }
+        style::styled(&format!(" ◷ ideas {} ", self.list()), Some(16), Some(214), "b") + "  "
+    }
+}
+
+/// "09:00 15:00" as minutes after midnight, earliest first.
+fn times_of(text: &str) -> Vec<i64> {
+    let mut times: Vec<i64> = text
+        .split_whitespace()
+        .filter_map(|w| {
+            let (h, m) = w.split_once(':')?;
+            let (h, m) = (h.parse::<i64>().ok()?, m.parse::<i64>().ok()?);
+            (h < 24 && m < 60).then_some(h * 60 + m)
+        })
+        .collect();
+    times.sort();
+    times.dedup();
+    times
+}
+
+/// The time `m` minutes after midnight on the day of `t`, local time.
+fn at(t: i64, m: i64) -> i64 {
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&(t as libc::time_t), &mut tm);
+        tm.tm_hour = (m / 60) as _;
+        tm.tm_min = (m % 60) as _;
+        tm.tm_sec = 0;
+        tm.tm_isdst = -1;
+        libc::mktime(&mut tm) as i64
+    }
 }
 
 /// What a key in one of Home's boxes asks of the rest of gluon.
@@ -989,7 +1121,7 @@ impl Home {
     /// Ctrl+S: Claude, below, is asked what to do about the unread mail,
     /// the calendar and the tasks, which go with the question, and gets
     /// the keys for the answer ("do 1 and 3").
-    fn ask(&mut self, mail: &kastrup::app::App, cal: &tock::app::App, claude: &mut Claude) {
+    fn ask(&mut self, mail: &kastrup::app::App, cal: &tock::app::App, claude: &mut Claude, keys: bool) {
         let Some(c) = claude.app() else { return };
         let file = std::fs::read_to_string(&self.views).unwrap_or_default();
         let unread: Vec<_> = mail
@@ -1013,6 +1145,10 @@ impl Home {
         // Claude to take before it proposes, such as a search elsewhere.
         let sweep = std::fs::read_to_string(self.views.with_file_name("sweep")).unwrap_or_default();
         c.ask(&if sweep.trim().is_empty() { ASK.to_string() } else { format!("{ASK}\n\n{}", sweep.trim()) });
+        // A timed sweep leaves the keys where they are.
+        if !keys {
+            return;
+        }
         // On the whole screen Claude has the keys already, and its own bar.
         if self.full {
             self.focus = CLAUDE;
@@ -1467,6 +1603,7 @@ const HELP: &[&str] = &[
     "^A  back to the last tab  ^O  the next tab",
     "0-9  that kastrup view in the Mail tab; ^0-9 from anywhere",
     "^⇧C ^⇧T  the Calendar, the Tasks, from anywhere",
+    "^⇧S  ^S by itself at the times in ~/.gluon/auto",
     "^L  draw it all again     Q   quit",
 ];
 
@@ -1562,6 +1699,8 @@ fn main() {
         println!("            one you browse is marked read (R undoes it, A marks all), d");
         println!("            marks it for deletion, and < does both. Ctrl+S asks Claude, below,");
         println!("            what to do about them: tasks to add, events and answers.");
+        println!("            Ctrl+Shift+S asks it by itself at the times in ~/.gluon/auto");
+        println!("            (09:00 and 15:00 at first), and again to stop;");
         println!("            t tags rows in any box, and Esc hands every tagged row to Claude;");
         println!("            ? shows all the keys at Home");
         println!("  Mail      kastrup, with its own keys and ~/.kastrup/");
@@ -1591,6 +1730,7 @@ fn main() {
     };
     let mut claude = Claude::start(&dir);
     Crust::set_app_identity("gluon");
+    let mut auto = Auto::load(&dir);
     mail.set_tab_line(Some(tab_line(MAIL)));
     cal.set_tab_line(Some(tab_line(CALENDAR)));
     let unseen = Unseen::new();
@@ -1626,8 +1766,40 @@ fn main() {
         if sent.is_some() {
             wait = 0;
         }
+        if !auto.times.is_empty() {
+            wait = wait.min(auto.wait(now()));
+        }
         let mut key = Input::getchr(Some(wait));
         let mut act = None;
+        // A timed sweep: Ctrl+S by itself, the keys left where they are.
+        if let Some(t) = auto.due(now()) {
+            auto.done(t);
+            if tab == HOME {
+                home.ask(&mail, &cal, &mut claude, false);
+            } else {
+                unseen.run(|| home.ask(&mail, &cal, &mut claude, false));
+            }
+            home.note = format!(" Ideas from Claude, asked at {}", clock(t, "%H:%M"));
+        }
+        // Ctrl+Shift+S, from anywhere: the timed sweeps on or off, with
+        // their mark on every tab's top line.
+        if key.as_deref() == Some("C-S-S") {
+            auto.toggle();
+            home.note = if auto.times.is_empty() {
+                " Timed ideas off".into()
+            } else {
+                format!(" Timed ideas on: Ctrl+S by itself at {}", auto.list())
+            };
+            mail.set_tab_line(Some(tab_line(MAIL)));
+            cal.set_tab_line(Some(tab_line(CALENDAR)));
+            match tab {
+                MAIL => mail.repaint(),
+                CALENDAR => cal.repaint(),
+                TASKS => tasks.repaint(),
+                _ => home.repaint(&mail, &cal, &mut claude),
+            }
+            continue;
+        }
         // While Claude or scribe has the keys, Q and Esc are theirs.
         let to_claude = tab == HOME && (home.full || home.claude_keys()) && matches!(claude, Claude::On(_));
         let typing = to_claude || (tab == TASKS && !tasks.board);
@@ -1723,7 +1895,7 @@ fn main() {
                             next = Some(HOME);
                         }
                     }
-                    _ if k == "C-S" => home.ask(&mail, &cal, &mut claude),
+                    _ if k == "C-S" => home.ask(&mail, &cal, &mut claude, true),
                     // Home and Claude drawn again from the start.
                     _ if k == "C-L" => {
                         home.repaint(&mail, &cal, &mut claude);
@@ -1908,6 +2080,31 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_timed_sweep_runs_once_at_its_time_and_once_after_a_sleep() {
+        let day = at(now(), 0);
+        let mut auto = Auto { file: PathBuf::from("/nowhere/auto"), times: times_of("15:00 9:00 25:00 soon"), last: at(day, 480), next: 0 };
+        assert_eq!(auto.times, [540, 900]);
+        auto.plan();
+        let (nine, three) = (at(day, 540), at(day, 900));
+        assert_eq!((auto.due(nine - 60), auto.wait(nine - 60)), (None, 60));
+        // Asleep from 08:30 to 11:00: the 09:00 one runs on waking, once.
+        assert_eq!(auto.due(nine + 7200), Some(nine));
+        auto.done(nine);
+        assert_eq!((auto.due(nine + 7200), auto.wait(nine + 7200)), (None, 4 * 3600));
+        assert_eq!(auto.due(three), Some(three));
+        auto.done(three);
+        // After 15:00 the next is 09:00 tomorrow.
+        assert_eq!(auto.wait(three + 60), (at(three + 86400, 540) - three - 60) as u64);
+        // Asleep for two days, awake at 08:00: nothing is caught up, and
+        // the next is that day's 09:00.
+        let later = at(three + 3 * 86400, 480);
+        assert_eq!((auto.due(later), auto.wait(later)), (None, 3600));
+        assert!(auto.badge().contains("09:00 15:00"));
+        auto.times.clear();
+        assert_eq!(auto.badge(), "");
+    }
 
     const TODO: &str = "\tInbox\n\tHome\n\t\tPaint\n\t\t[O] Bike\n\t\t\tChain\n\t\t[x] Milk\n\tWork\n\t\t[-] Ask\n";
 
