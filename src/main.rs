@@ -529,10 +529,10 @@ fn start_claude(home: &Path) -> Result<deck::app::App, String> {
     // A new session the first time, or when the old one has no transcript
     // (no prompt was ever sent in it).
     let app = if id.is_empty() {
-        deck::app::start(None, dir.to_str())?
+        deck::app::start(None, dir.to_str(), Some("gluon"))?
     } else {
-        match deck::app::start(Some(id), None) {
-            Err(e) if e.starts_with("No ") => deck::app::start(None, dir.to_str())?,
+        match deck::app::start(Some(id), None, Some("gluon")) {
+            Err(e) if e.starts_with("No ") => deck::app::start(None, dir.to_str(), Some("gluon"))?,
             other => other?,
         }
     };

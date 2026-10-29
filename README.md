@@ -123,7 +123,10 @@ in Claude, C-D ends it. Ctrl+L draws Home and Claude again. kastrup and tock no 
 Home, C-T shows the tool calls in full.
 
 With [cc-sessions](https://github.com/isene/CC-sessions), gluon bookmarks
-the session as #gluon, so `cc gluon` and fleet find it.
+the session as #gluon, so `cc gluon` and fleet find it. A fleet message
+for #gluon, from another session or your phone, goes to Claude as it
+lands, whichever tab or box has the keys; while Claude works, it gets
+the message at the end of the turn.
 
 The Tasks tab is scribe on the task list, with all of scribe's keys but
 Ctrl+O, Ctrl+A and Ctrl+B, which stay gluon's. Unsaved text is written
