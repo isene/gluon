@@ -968,7 +968,7 @@ impl Auto {
         if !self.on() {
             return String::new();
         }
-        style::styled(&format!(" ◷ ideas {} ", self.list()), Some(16), Some(136), "b") + "  "
+        style::bg_rgb(&style::bold(&style::fg(&format!(" ◷ ideas {} ", self.list()), 136)), "#161a00") + "  "
     }
 }
 
