@@ -655,7 +655,7 @@ impl Frame {
     fn new(keys: &'static str) -> Self {
         Frame {
             x: 1, y: 1, w: 3, h: 3,
-            pane: Pane::new(2, 2, 1, 1, 252, 0),
+            pane: Pane::new(2, 2, 1, 1, 255, 0),
             title: String::new(),
             keys,
             rows: Vec::new(),
@@ -670,7 +670,7 @@ impl Frame {
     fn place(&mut self, x: u16, y: u16, w: u16, h: u16) {
         (self.x, self.y, self.w, self.h) = (x, y, w.max(5), h.max(3));
         // A column of room inside each side.
-        self.pane = Pane::new(x + 2, y + 1, self.w - 4, self.h - 2, 252, 0);
+        self.pane = Pane::new(x + 2, y + 1, self.w - 4, self.h - 2, 255, 0);
         self.pane.wrap = false;
         self.pane.scroll = false;
         self.drawn = None;
