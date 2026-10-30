@@ -84,7 +84,14 @@ waits on you, say. Without the file, nothing else is asked.
 gluon asks the Ctrl+S question by itself at 09:00, 15:00 and 21:00, and an orange
 `◷ ideas 09:00 15:00 21:00` on every tab's top line says so. A time from
 18:00 on looks back instead: what got done, what moves to tomorrow, and
-what you can let go. The times are in `~/.gluon/auto`.
+what you can let go. The times are in `~/.gluon/auto`. A line that starts
+with days gives those days their own times, so this asks at 15:00 alone on
+weekends:
+
+    09:00 15:00 21:00
+    Sat Sun 15:00
+
+A day line with no times leaves that day out.
 
 A time that passed while the laptop slept is asked once on waking, the
 same day. The answer waits in the pane below Home, and the keys stay where

@@ -827,7 +827,9 @@ fn now() -> i64 {
 const AUTO_TIMES: &str = "09:00 15:00 21:00";
 
 /// Ctrl+S by itself at set times of the day, while ~/.gluon/auto is
-/// there; from 18:00 it asks EVENING instead. The file holds the times; Ctrl+Shift+S moves it to auto.off and
+/// there; from 18:00 it asks EVENING instead. The file holds the times, and
+/// a line that starts with days ("Sat Sun 15:00") gives those days their
+/// own. Ctrl+Shift+S moves it to auto.off and
 /// back, so they stay. ~/.gluon/auto.last has when the last one ran, so a
 /// time that passed while the laptop slept runs once on waking, the same
 /// day. Off, none of this runs; on, gluon wakes for it at the times alone.
@@ -835,6 +837,8 @@ struct Auto {
     file: PathBuf,
     /// Minutes after midnight, earliest first; none while off.
     times: Vec<i64>,
+    /// A day's own times, Sunday first, where a line names the day.
+    week: [Option<Vec<i64>>; 7],
     last: i64,
     /// The first time after `last`. A wake compares the clock with it
     /// alone: mktime looks at /etc/localtime on every call.
@@ -848,27 +852,57 @@ impl Auto {
             .ok()
             .and_then(|t| t.trim().parse().ok())
             .unwrap_or_else(now);
-        let mut auto = Auto { file, times: Vec::new(), last, next: i64::MAX };
+        let mut auto = Auto { file, times: Vec::new(), week: Default::default(), last, next: i64::MAX };
         auto.read();
         auto
     }
 
     fn read(&mut self) {
-        self.times = match std::fs::read_to_string(&self.file) {
-            Ok(t) if t.trim().is_empty() => times_of(AUTO_TIMES),
-            Ok(t) => times_of(&t),
-            Err(_) => Vec::new(),
-        };
+        match std::fs::read_to_string(&self.file) {
+            Ok(t) if t.trim().is_empty() => self.parse(AUTO_TIMES),
+            Ok(t) => self.parse(&t),
+            Err(_) => self.parse(""),
+        }
         self.plan();
         if let Ok(mut b) = BADGE.lock() {
             *b = self.badge();
         }
     }
 
+    /// "09:00 15:00 21:00" for every day, and "Sat Sun 15:00" for those
+    /// days alone; a day line with no times leaves that day out.
+    fn parse(&mut self, text: &str) {
+        self.times.clear();
+        self.week = Default::default();
+        for line in text.lines() {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let days: Vec<usize> = words.iter().map_while(|w| day_of(w)).collect();
+            let times = times_of(&words[days.len()..].join(" "));
+            if days.is_empty() {
+                self.times.extend(times);
+            } else {
+                for d in days {
+                    self.week[d] = Some(times.clone());
+                }
+            }
+        }
+        self.times.sort();
+        self.times.dedup();
+    }
+
+    fn on(&self) -> bool {
+        !self.times.is_empty() || self.week.iter().any(Option::is_some)
+    }
+
+    /// The times on the day of `t`.
+    fn day(&self, t: i64) -> &[i64] {
+        self.week[weekday(t)].as_deref().unwrap_or(&self.times)
+    }
+
     /// Ctrl+Shift+S. Turned on, only the times still to come run.
     fn toggle(&mut self) {
         let off = self.file.with_extension("off");
-        if self.times.is_empty() {
+        if !self.on() {
             if std::fs::rename(&off, &self.file).is_err() {
                 let _ = std::fs::write(&self.file, format!("{AUTO_TIMES}\n"));
             }
@@ -881,9 +915,12 @@ impl Auto {
 
     fn plan(&mut self) {
         let l = self.last;
-        self.next = self.times.iter().map(|&m| at(l, m)).filter(|&s| s > l).min()
-            .or_else(|| self.times.first().map(|&m| at(l + 86400, m)))
-            .unwrap_or(i64::MAX);
+        // Noon of each of the next eight days, so a clock change keeps the day.
+        let noon = at(l, 720);
+        let next = (0..8)
+            .map(|d| noon + d * 86400)
+            .find_map(|n| self.day(n).iter().map(|&m| at(n, m)).filter(|&s| s > l).min());
+        self.next = next.unwrap_or(i64::MAX);
     }
 
     /// Seconds until the next time, for the main loop's wait.
@@ -896,7 +933,7 @@ impl Auto {
         if t < self.next {
             return None;
         }
-        let due = self.times.iter().map(|&m| at(t, m)).filter(|&s| s <= t && s > self.last).max();
+        let due = self.day(t).iter().map(|&m| at(t, m)).filter(|&s| s <= t && s > self.last).max();
         if due.is_none() {
             // A time missed on an earlier day is not caught up.
             self.last = self.last.max(at(t, 0) - 1);
@@ -911,12 +948,26 @@ impl Auto {
         let _ = std::fs::write(self.file.with_extension("last"), format!("{t}\n"));
     }
 
+    /// "09:00 15:00 21:00, Sat Sun 15:00": days with the same times share a part.
     fn list(&self) -> String {
-        self.times.iter().map(|m| format!("{:02}:{:02}", m / 60, m % 60)).collect::<Vec<_>>().join(" ")
+        let mut parts = vec![hm(&self.times)];
+        let mut seen: Vec<&Vec<i64>> = Vec::new();
+        for d in [1, 2, 3, 4, 5, 6, 0] {
+            let Some(ts) = &self.week[d] else { continue };
+            if seen.contains(&ts) {
+                continue;
+            }
+            seen.push(ts);
+            let days: Vec<&str> =
+                [1, 2, 3, 4, 5, 6, 0].into_iter().filter(|&e| self.week[e].as_ref() == Some(ts)).map(|e| DAYS[e]).collect();
+            parts.push(format!("{} {}", days.join(" "), if ts.is_empty() { "none".into() } else { hm(ts) }));
+        }
+        parts.retain(|p| !p.is_empty());
+        parts.join(", ")
     }
 
     fn badge(&self) -> String {
-        if self.times.is_empty() {
+        if !self.on() {
             return String::new();
         }
         style::styled(&format!(" ◷ ideas {} ", self.list()), Some(16), Some(136), "b") + "  "
@@ -936,6 +987,31 @@ fn times_of(text: &str) -> Vec<i64> {
     times.sort();
     times.dedup();
     times
+}
+
+const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/// "Sat", "sat" or "Saturday:" as 6; Sunday is 0.
+fn day_of(w: &str) -> Option<usize> {
+    let w = w.trim_end_matches(':').to_ascii_lowercase();
+    if w.len() < 3 {
+        return None;
+    }
+    DAYS.iter().position(|d| w.starts_with(&d.to_ascii_lowercase()))
+}
+
+/// [540, 900] as "09:00 15:00".
+fn hm(times: &[i64]) -> String {
+    times.iter().map(|m| format!("{:02}:{:02}", m / 60, m % 60)).collect::<Vec<_>>().join(" ")
+}
+
+/// The day of the week of `t`, local time; Sunday is 0.
+fn weekday(t: i64) -> usize {
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&(t as libc::time_t), &mut tm);
+        tm.tm_wday as usize
+    }
 }
 
 /// The time `m` minutes after midnight on the day of `t`, local time.
@@ -1383,7 +1459,8 @@ impl Home {
         }
         let mut drew = false;
         let sig = mail.db_signature();
-        let sending = mail.send_note();
+        // A mail on the wire, or else one that failed and waits in the drafts.
+        let sending = mail.send_note().or_else(|| mail.unsent_note());
         if force || self.sig != Some(sig) || sending != self.sending {
             self.sig = Some(sig);
             self.sending = sending;
@@ -1773,7 +1850,7 @@ fn main() {
         if sent.is_some() {
             wait = 0;
         }
-        if !auto.times.is_empty() {
+        if auto.on() {
             wait = wait.min(auto.wait(now()));
         }
         let mut key = Input::getchr(Some(wait));
@@ -1793,7 +1870,7 @@ fn main() {
         // their mark on every tab's top line.
         if key.as_deref() == Some("C-S-S") {
             auto.toggle();
-            home.note = if auto.times.is_empty() {
+            home.note = if !auto.on() {
                 " Timed ideas off".into()
             } else {
                 format!(" Timed ideas on: Ctrl+S by itself at {}", auto.list())
@@ -2092,7 +2169,7 @@ mod tests {
     #[test]
     fn a_timed_sweep_runs_once_at_its_time_and_once_after_a_sleep() {
         let day = at(now(), 0);
-        let mut auto = Auto { file: PathBuf::from("/nowhere/auto"), times: times_of("15:00 9:00 25:00 soon"), last: at(day, 480), next: 0 };
+        let mut auto = Auto { file: PathBuf::from("/nowhere/auto"), times: times_of("15:00 9:00 25:00 soon"), week: Default::default(), last: at(day, 480), next: 0 };
         assert_eq!(auto.times, [540, 900]);
         auto.plan();
         let (nine, three) = (at(day, 540), at(day, 900));
@@ -2112,6 +2189,32 @@ mod tests {
         assert!(auto.badge().contains("09:00 15:00"));
         auto.times.clear();
         assert_eq!(auto.badge(), "");
+    }
+
+    #[test]
+    fn a_day_line_gives_the_weekend_its_own_times() {
+        let mut sat = at(now(), 720);
+        while weekday(sat) != 6 {
+            sat += 86400;
+        }
+        let (fri, sun, mon) = (sat - 86400, sat + 86400, sat + 2 * 86400);
+        let mut auto = Auto { file: PathBuf::from("/nowhere/auto"), times: Vec::new(), week: Default::default(), last: at(fri, 1290), next: 0 };
+        auto.parse("09:00 15:00 21:00\nsat Sunday: 15:00\n");
+        assert_eq!(auto.times, [540, 900, 1260]);
+        assert_eq!(auto.list(), "09:00 15:00 21:00, Sat Sun 15:00");
+        auto.plan();
+        // After Friday 21:30, Saturday 09:00 is skipped and 15:00 is next.
+        assert_eq!(auto.due(at(sat, 600)), None);
+        assert_eq!(auto.next, at(sat, 900));
+        assert_eq!(auto.due(at(sat, 905)), Some(at(sat, 900)));
+        auto.done(at(sat, 905));
+        assert_eq!(auto.next, at(sun, 900));
+        auto.done(at(sun, 905));
+        assert_eq!(auto.next, at(mon, 540));
+        // A day line alone keeps the schedule on; "Sun" with no times leaves Sunday out.
+        auto.parse("Sat 12:00\nSun");
+        assert!(auto.on() && auto.times.is_empty());
+        assert_eq!(auto.list(), "Sat 12:00, Sun none");
     }
 
     const TODO: &str = "\tInbox\n\tHome\n\t\tPaint\n\t\t[O] Bike\n\t\t\tChain\n\t\t[x] Milk\n\tWork\n\t\t[-] Ask\n";
