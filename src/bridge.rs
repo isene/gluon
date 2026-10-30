@@ -28,9 +28,12 @@ const COLOURS: [Rgb; 4] = [PEACH, LILAC, PERI, SKY];
 pub struct Plan {
     pub cols: u16,
     pub rows: u16,
+    /// The row of the bar between Home and Claude.
+    pub mid: u16,
     /// Sidebar parts: first row, rows, colour, label ("" for the clock,
     /// which is text alone, so its minutes send no picture). The first
-    /// part is the top corner, the last the bottom corner.
+    /// part is the top corner, the last the bottom corner, and the one
+    /// between with no label is where the bar at `mid` crosses.
     pub parts: Vec<(u16, u16, Rgb, Option<&'static str>)>,
     /// A box's header bar: row, first column, columns, colour.
     pub bars: Vec<(u16, u16, u16, Rgb)>,
@@ -48,22 +51,29 @@ pub struct Head {
     pub focused: bool,
 }
 
-/// The plan for Home's top `rows` rows: the box with the keys lit
-/// (`focus` 0 to 3, 3 for Claude), the boxes' headers, and the text spans
-/// in the top and bottom bars (column, cells).
-pub fn plan(cols: u16, rows: u16, focus: usize, heads: &[Head], top: &[(u16, u16)], foot: &[(u16, u16)]) -> Plan {
-    let mut p = Plan { cols, rows, ..Plan::default() };
-    // The buttons share what the corners leave, up to three rows each.
-    let each = (rows.saturating_sub(7) / 4).clamp(1, 3);
+/// The plan for the screen: Home above the bar at row `mid`, Claude
+/// below it; the box with the keys lit (`focus` 0 to 3, 3 for Claude),
+/// the boxes' headers, and the text spans in the top bar and the middle
+/// one (column, cells).
+pub fn plan(cols: u16, rows: u16, mid: u16, focus: usize, heads: &[Head], top: &[(u16, u16)], foot: &[(u16, u16)]) -> Plan {
+    let mut p = Plan { cols, rows, mid, ..Plan::default() };
+    // The buttons share what the corners leave above the bar, up to three rows each.
+    let each = (mid.saturating_sub(6) / 4).clamp(1, 3);
     p.parts.push((0, 2, ORANGE, None));
     for (i, name) in NAMES.iter().enumerate() {
         let c = if i == focus { GOLD } else { COLOURS[i] };
         p.parts.push((2 + i as u16 * each, each, c, Some(*name)));
     }
     let after = 2 + 4 * each;
-    let bottom = rows.saturating_sub(3).max(after);
-    if bottom > after {
-        p.parts.push((after, bottom - after, RED, Some("")));
+    let join = mid.saturating_sub(2).max(after);
+    if join > after {
+        p.parts.push((after, join - after, RED, Some("")));
+    }
+    let below = (mid + 2).max(join + 1);
+    p.parts.push((join, below - join, ORANGE, None));
+    let bottom = rows.saturating_sub(3).max(below);
+    if bottom > below {
+        p.parts.push((below, bottom - below, SKY, Some("COMMS")));
     }
     p.parts.push((bottom, rows.saturating_sub(bottom), ORANGE, None));
     for (row, rows, _, label) in &p.parts {
@@ -80,7 +90,7 @@ pub fn plan(cols: u16, rows: u16, focus: usize, heads: &[Head], top: &[(u16, u16
         p.holes.push((0, col, n));
     }
     for &(col, n) in foot {
-        p.holes.push((rows.saturating_sub(1), col, n));
+        p.holes.push((mid, col, n));
     }
     p
 }
@@ -165,7 +175,7 @@ pub fn picture(p: &Plan, cell: Option<(u16, u16)>) -> Canvas {
     // corners' outer curve is wider, the inner one smaller.
     let (arm, outer, inner) = (ch, (ch * 1.6).min(side / 2.0), (ch * 0.6).min(cw));
     let last = p.parts.len().saturating_sub(1);
-    for (i, (row, rows, rgb, _)) in p.parts.iter().enumerate() {
+    for (i, (row, rows, rgb, label)) in p.parts.iter().enumerate() {
         let y0 = *row as f64 * ch + if i > 0 { gap } else { 0.0 };
         let y1 = (*row + *rows) as f64 * ch;
         if i == 0 {
@@ -189,6 +199,21 @@ pub fn picture(p: &Plan, cell: Option<(u16, u16)>) -> Canvas {
             };
             fill(&mut c, (0.0, y0, side + inner, (h - arm).floor()), *rgb, &cover);
             fill(&mut c, bar, *rgb, &cover);
+        } else if label.is_none() {
+            // The bar between Home and Claude crosses the sidebar here,
+            // curving into it above and below.
+            let ya = p.mid as f64 * ch;
+            let bar = (0.0, ya, w, ya + arm);
+            let block = (0.0, y0, side, y1);
+            let cover = |x, y| {
+                rect(x, y, block, [0.0; 4])
+                    .max(rect(x, y, bar, [0.0, arm / 2.0, arm / 2.0, 0.0]))
+                    .max(curve(x, y, side, ya - inner, inner, (side + inner, ya - inner)))
+                    .max(curve(x, y, side, ya + arm, inner, (side + inner, ya + arm + inner)))
+            };
+            fill(&mut c, (0.0, y0, side + inner, ya.floor()), *rgb, &cover);
+            fill(&mut c, bar, *rgb, &cover);
+            fill(&mut c, (0.0, (ya + arm).ceil(), side + inner, y1), *rgb, &cover);
         } else {
             fill(&mut c, (0.0, y0, side, y1), *rgb, |x, y| rect(x, y, (0.0, y0, side, y1), [0.0; 4]));
         }
@@ -251,18 +276,20 @@ mod tests {
             Head { row: 1, col: 93, cols: 81, title: 8, focused: false },
             Head { row: 17, col: 93, cols: 81, title: 7, focused: false },
         ];
-        plan(174, 34, 0, &heads, &[(15, 20), (140, 30)], &[(150, 14)])
+        plan(174, 51, 33, 0, &heads, &[(15, 20), (140, 30)], &[(150, 14)])
     }
 
     #[test]
     fn the_buttons_fit_between_the_corners() {
         let p = sample();
-        assert_eq!(p.parts.len(), 7);
+        assert_eq!(p.parts.len(), 9);
         assert_eq!(p.parts[1], (2, 3, GOLD, Some("MESSAGES")));
-        assert_eq!(p.parts.last().unwrap().0 + p.parts.last().unwrap().1, 34);
-        // Short screens get one-row buttons, and the corners still fit.
-        let small = plan(80, 9, 3, &[], &[], &[]);
+        assert_eq!(p.parts[6], (31, 4, ORANGE, None), "the crossing");
+        assert_eq!(p.parts.last().unwrap().0 + p.parts.last().unwrap().1, 51);
+        // Short screens get one-row buttons, and the parts still fit.
+        let small = plan(80, 16, 9, 3, &[], &[], &[]);
         assert!(small.parts.windows(2).all(|w| w[0].0 + w[0].1 <= w[1].0));
+        assert_eq!(small.parts.last().unwrap().0 + small.parts.last().unwrap().1, 16);
     }
 
     #[test]
@@ -274,6 +301,9 @@ mod tests {
         assert_eq!(alpha(50, 10), 0, "inside a box");
         assert_eq!(alpha(20, 1), 0, "a title");
         assert_eq!(alpha(60, 1), 255, "a header bar");
+        assert_eq!(alpha(100, 33), 255, "the bar between Home and Claude");
+        assert_eq!(alpha(100, 40), 0, "Claude");
+        assert_eq!(alpha(2, 40), 255, "the sidebar beside Claude");
         if let Ok(path) = std::env::var("BRIDGE_DUMP") {
             std::fs::write(path, c.png()).unwrap();
         }

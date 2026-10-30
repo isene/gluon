@@ -27,8 +27,8 @@ Home has four parts, three boxes over Claude:
   calendar and tasks are. **Ctrl+Z** gives it the whole screen and back.
 
 **Ctrl+Shift+B** dresses Home as a Star Trek panel: orange arms round
-the boxes, a coloured button for each part and a stardate, drawn in real
-pixels in glass or kitty. The same key brings the plain look back, and
+the boxes and Claude, a coloured button for each part and a stardate,
+drawn in real pixels in glass or kitty. The same key brings the plain look back, and
 gluon remembers the choice in `~/.gluon/bridge`.
 
 **Tab** moves the keys from box to box and on to Claude (**Shift+Tab**

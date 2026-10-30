@@ -1220,6 +1220,18 @@ impl Home {
         (top + 1, rows.saturating_sub(top + 1))
     }
 
+    /// Claude's place below the boxes, as deck takes it: (the row above,
+    /// rows, columns left of it). The bridge look keeps the sidebar beside
+    /// it and the bottom bar under it.
+    fn claude_area(&self) -> (u16, u16, u16) {
+        let (top, rows) = Self::split();
+        if self.bridge.is_some() {
+            (top, rows.saturating_sub(1), bridge::SIDE + 1)
+        } else {
+            (top, rows, 0)
+        }
+    }
+
     fn layout(&mut self) {
         let (cols, _) = Crust::terminal_size();
         let on = self.bridge.is_some();
@@ -1333,7 +1345,7 @@ impl Home {
         match claude {
             Claude::On(c) => {
                 c.set_tab_line(Some(claude_label(self.claude_keys())));
-                c.set_area(Some(Self::split()));
+                c.set_area(Some(self.claude_area()));
                 c.set_focus(self.claude_keys());
             }
             other => self.claude_off(other),
@@ -1342,14 +1354,15 @@ impl Home {
 
     /// Claude's rows when it could not start.
     fn claude_off(&self, claude: &Claude) {
-        let (top, rows) = Self::split();
-        let (cols, _) = Crust::terminal_size();
+        let (top, rows, left) = self.claude_area();
+        let (all, _) = Crust::terminal_size();
+        let cols = all.saturating_sub(left);
         let why = match claude {
             Claude::Failed(e) => format!("Claude could not start: {e}"),
             _ => String::new(),
         };
-        Pane::new(1, top + 1, cols, 1, 255, 236).say(&claude_label(self.claude_keys()));
-        Pane::new(2, top + 3, cols.saturating_sub(2), rows.saturating_sub(2), 245, 0).say(&why);
+        Pane::new(left + 1, top + 1, cols, 1, 255, 236).say(&claude_label(self.claude_keys()));
+        Pane::new(left + 2, top + 3, cols.saturating_sub(2), rows.saturating_sub(2), 245, 0).say(&why);
         Cursor::hide();
     }
 
@@ -1642,8 +1655,8 @@ impl Home {
     /// The picture, sent when what it shows changed, and the sidebar's
     /// labels and the bottom bar's text, written with the top bar.
     fn paint_bridge(&mut self, now: i64, relabel: bool) -> bool {
-        let (cols, _) = Crust::terminal_size();
-        let rows = Self::split().0;
+        let (cols, rows) = Crust::terminal_size();
+        let mid = Self::split().0 - 1;
         let focus = self.focus;
         let mut frames = vec![(&self.boxes[BOX_MAIL], focus == BOX_MAIL)];
         match self.right {
@@ -1661,13 +1674,13 @@ impl Home {
                 focused: *focused,
             })
             .collect();
-        let plan = bridge::plan(cols, rows, focus.min(3), &heads, &self.top_spans, &self.foot_spans);
+        let plan = bridge::plan(cols, rows, mid, focus.min(3), &heads, &self.top_spans, &self.foot_spans);
         let labels = bridge::labels(&plan, &clock(now, "%H:%M"));
         let Some(b) = &mut self.bridge else { return false };
         let sent = b.show(plan);
         if sent || relabel {
             let foot: String = self.foot_spans.iter().map(|&(c, _)| {
-                Cursor::at(c + 1, rows) + &style::rgb(&format!(" GLUON {} ", env!("CARGO_PKG_VERSION")), Some(bridge::PEACH), None, "b")
+                Cursor::at(c + 1, mid + 1) + &style::rgb(&format!(" GLUON {} ", env!("CARGO_PKG_VERSION")), Some(bridge::PEACH), None, "b")
             }).collect();
             print!("{labels}{foot}");
             let _ = std::io::stdout().flush();
