@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "fe2o3-mail"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "encoding_rs",
  "regex",
@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "gluon"
-version = "0.19.2"
+version = "0.19.3"
 dependencies = [
  "deck",
  "fe2o3-crust",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "kastrup"
-version = "0.3.107"
+version = "0.3.108"
 dependencies = [
  "base64",
  "fe2o3-crust",
