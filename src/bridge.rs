@@ -13,7 +13,6 @@ pub const LILAC: Rgb = (204, 153, 204);
 pub const PERI: Rgb = (153, 153, 255);
 pub const RED: Rgb = (204, 102, 102);
 pub const SKY: Rgb = (153, 204, 255);
-pub const GOLD: Rgb = (255, 204, 102);
 
 /// The sidebar's width in columns.
 pub const SIDE: u16 = 12;
@@ -21,6 +20,13 @@ pub const SIDE: u16 = 12;
 /// The sidebar's buttons, one per place at Home that can have the keys.
 const NAMES: [&str; 4] = ["MESSAGES", "AGENDA", "TASKS", "CLAUDE"];
 const COLOURS: [Rgb; 4] = [PEACH, LILAC, PERI, SKY];
+
+/// A button without the keys: its colour at three fifths, dark enough to
+/// set the lit one apart and light enough for its black label.
+fn dim((r, g, b): Rgb) -> Rgb {
+    let d = |v: u8| (v as u16 * 3 / 5) as u8;
+    (d(r), d(g), d(b))
+}
 
 /// Everything the picture shows, in cells from 0. The same plan draws
 /// the same picture, so an unchanged plan sends nothing.
@@ -35,6 +41,8 @@ pub struct Plan {
     /// part is the top corner, the last the bottom corner, and the one
     /// between with no label is where the bar at `mid` crosses.
     pub parts: Vec<(u16, u16, Rgb, Option<&'static str>)>,
+    /// The parts with the keys, which reach across the gap to their text.
+    pub lit: Vec<usize>,
     /// A box's header bar: row, first column, columns, colour.
     pub bars: Vec<(u16, u16, u16, Rgb)>,
     /// Cells that show text: row, column, cells.
@@ -60,8 +68,9 @@ pub fn plan(cols: u16, rows: u16, mid: u16, focus: usize, heads: &[Head], top: &
     // The buttons share what the corners leave above the bar, up to three rows each.
     let each = (mid.saturating_sub(6) / 4).clamp(1, 3);
     p.parts.push((0, 2, ORANGE, None));
+    p.lit.push(1 + focus.min(3));
     for (i, name) in NAMES.iter().enumerate() {
-        let c = if i == focus { GOLD } else { COLOURS[i] };
+        let c = if i == focus { COLOURS[i] } else { dim(COLOURS[i]) };
         p.parts.push((2 + i as u16 * each, each, c, Some(*name)));
     }
     let after = 2 + 4 * each;
@@ -73,7 +82,11 @@ pub fn plan(cols: u16, rows: u16, mid: u16, focus: usize, heads: &[Head], top: &
     p.parts.push((join, below - join, ORANGE, None));
     let bottom = rows.saturating_sub(3).max(below);
     if bottom > below {
-        p.parts.push((below, bottom - below, SKY, Some("COMMS")));
+        // Beside Claude, lit with the Claude button.
+        if focus == 3 {
+            p.lit.push(p.parts.len());
+        }
+        p.parts.push((below, bottom - below, if focus == 3 { SKY } else { dim(SKY) }, Some("COMMS")));
     }
     p.parts.push((bottom, rows.saturating_sub(bottom), ORANGE, None));
     for (row, rows, _, label) in &p.parts {
@@ -215,7 +228,9 @@ pub fn picture(p: &Plan, cell: Option<(u16, u16)>) -> Canvas {
             fill(&mut c, bar, *rgb, &cover);
             fill(&mut c, (0.0, (ya + arm).ceil(), side + inner, y1), *rgb, &cover);
         } else {
-            fill(&mut c, (0.0, y0, side, y1), *rgb, |x, y| rect(x, y, (0.0, y0, side, y1), [0.0; 4]));
+            // A part with the keys reaches across the gap, its end rounded.
+            let (x1, r) = if p.lit.contains(&i) { (side + cw, cw / 2.0) } else { (side, 0.0) };
+            fill(&mut c, (0.0, y0, x1, y1), *rgb, |x, y| rect(x, y, (0.0, y0, x1, y1), [0.0, r, r, 0.0]));
         }
     }
     // A box's header: a bar a little thinner than its row, round at both ends.
@@ -283,7 +298,9 @@ mod tests {
     fn the_buttons_fit_between_the_corners() {
         let p = sample();
         assert_eq!(p.parts.len(), 9);
-        assert_eq!(p.parts[1], (2, 3, GOLD, Some("MESSAGES")));
+        assert_eq!(p.parts[1], (2, 3, PEACH, Some("MESSAGES")));
+        assert_eq!(p.parts[2], (5, 3, (122, 91, 122), Some("AGENDA")));
+        assert_eq!(p.lit, vec![1]);
         assert_eq!(p.parts[6], (31, 4, ORANGE, None), "the crossing");
         assert_eq!(p.parts.last().unwrap().0 + p.parts.last().unwrap().1, 51);
         // Short screens get one-row buttons, and the parts still fit.
@@ -304,6 +321,8 @@ mod tests {
         assert_eq!(alpha(100, 33), 255, "the bar between Home and Claude");
         assert_eq!(alpha(100, 40), 0, "Claude");
         assert_eq!(alpha(2, 40), 255, "the sidebar beside Claude");
+        assert_eq!(alpha(12, 3), 255, "the lit button reaches across the gap");
+        assert_eq!(alpha(12, 6), 0, "the others stop at the sidebar");
         if let Ok(path) = std::env::var("BRIDGE_DUMP") {
             std::fs::write(path, c.png()).unwrap();
         }
