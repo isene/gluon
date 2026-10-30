@@ -84,8 +84,7 @@ a box for new mail\"):
 This pane sits beside the user's work: answer short.
 ";
 
-/// The tab names for the first line, the one in view marked, then the
-/// key that moves on.
+/// The tab names for the first line, the one in view marked.
 fn tab_line(active: usize) -> String {
     let mut line = String::from(" ");
     for (i, name) in TABS.iter().enumerate() {
@@ -97,7 +96,6 @@ fn tab_line(active: usize) -> String {
         line.push_str("  ");
     }
     line.push_str(&BADGE.lock().map(|b| b.clone()).unwrap_or_default());
-    line.push_str(&style::fg("^O ", 240));
     line
 }
 
@@ -1243,7 +1241,7 @@ impl Home {
     /// The whole tab, after another tab had the screen or it was resized.
     fn repaint(&mut self, mail: &kastrup::app::App, cal: &tock::app::App, claude: &mut Claude) {
         if let (true, Claude::On(c)) = (self.full, &mut *claude) {
-            c.set_tab_line(Some(tab_line(HOME) + &style::fg("^Z half ", 240)));
+            c.set_tab_line(Some(tab_line(HOME)));
             c.set_area(None);
             c.set_focus(true);
             return;
@@ -1477,7 +1475,7 @@ impl Home {
             let cols = self.bar.w as usize;
             let right = style::fg(
                 &format!(
-                    "{} · Tab next box · ^S ideas · ^Z Claude full · gluon {} ",
+                    "{} · gluon {} ",
                     clock(now, "%a %e %b, week %V"),
                     env!("CARGO_PKG_VERSION")
                 ),
