@@ -16,6 +16,8 @@ kastrup = { path = "../kastrup" }
 tock = { path = "../tock" }
 # The Claude tab is deck.
 deck = { path = "../deck" }
+# The bridge look paints its frame in pixels.
+glow = { version = "0.1", path = "../glow", package = "fe2o3-glow" }
 # The Tasks tab is scribe, with the board beside it.
 scribe = { path = "../scribe" }
 libc = "0.2"

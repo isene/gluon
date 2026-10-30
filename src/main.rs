@@ -5,6 +5,8 @@
 //! same file as a board. Ctrl+O moves to
 //! the next tab, and Ctrl+A jumps Home and back.
 
+mod bridge;
+
 use crust::{style, Crust, Cursor, Input, Pane};
 use std::collections::HashSet;
 use std::io::Write;
@@ -647,6 +649,9 @@ struct Frame {
     drawn: Option<(String, bool)>,
     /// Rows tagged for Claude (t), by their keys, on a dark grey.
     tags: HashSet<(i64, i64)>,
+    /// Drawn in the bridge look: the title and keys alone, the bars are
+    /// the picture's.
+    bridge: bool,
 }
 
 impl Frame {
@@ -662,6 +667,7 @@ impl Frame {
             dirty: true,
             drawn: None,
             tags: HashSet::new(),
+            bridge: false,
         }
     }
 
@@ -676,6 +682,11 @@ impl Frame {
 
     fn inner(&self) -> usize {
         self.w as usize - 4
+    }
+
+    /// The title as the bridge look shows it, and its width in cells.
+    fn bridge_title(&self) -> String {
+        crust::truncate_ansi(&crust::strip_ansi(&self.title).to_uppercase(), self.inner())
     }
 
     /// New rows; the picked one stays picked while it is there.
@@ -787,6 +798,9 @@ impl Frame {
     }
 
     fn frame(&self, focused: bool) {
+        if self.bridge {
+            return self.frame_bridge(focused);
+        }
         let c = if focused { 156 } else { 238 };
         let inner = self.w as usize - 2;
         let edge = |left: &str, text: String, right: &str| {
@@ -804,6 +818,25 @@ impl Frame {
             s += &(Cursor::at(self.x + self.w - 2, self.y + r) + " " + &style::fg("│", c));
         }
         s += &(Cursor::at(self.x, self.y + self.h - 1) + &edge("╰", keys, "╯"));
+        print!("{s}");
+        let _ = std::io::stdout().flush();
+    }
+
+    /// The edges blank, the title in the gap the picture leaves in its
+    /// bar, and the keys below while the box has them.
+    fn frame_bridge(&self, focused: bool) {
+        let blank = " ".repeat(self.w as usize);
+        let c = if focused { bridge::ORANGE } else { bridge::PERI };
+        let mut s = Cursor::at(self.x, self.y) + &blank;
+        s += &(Cursor::at(self.x + 2, self.y) + &style::rgb(&self.bridge_title(), Some(c), None, "b"));
+        for r in 1..self.h - 1 {
+            s += &(Cursor::at(self.x, self.y + r) + "  ");
+            s += &(Cursor::at(self.x + self.w - 2, self.y + r) + "  ");
+        }
+        s += &(Cursor::at(self.x, self.y + self.h - 1) + &blank);
+        if focused {
+            s += &(Cursor::at(self.x + 2, self.y + self.h - 1) + &style::fg(&crust::truncate_ansi(self.keys, self.inner()), 245));
+        }
         print!("{s}");
         let _ = std::io::stdout().flush();
     }
@@ -1105,6 +1138,12 @@ struct Home {
     joinable: HashSet<(i64, i64)>,
     /// The mail box lists the oldest first (i turns it, as in kastrup).
     oldest: bool,
+    /// The bridge look (Ctrl+Shift+B), on while ~/.gluon/bridge exists,
+    /// and the text spans its top and bottom bars leave open.
+    bridge: Option<bridge::Bridge>,
+    bridge_file: PathBuf,
+    top_spans: Vec<(u16, u16)>,
+    foot_spans: Vec<(u16, u16)>,
 }
 
 impl Home {
@@ -1139,9 +1178,38 @@ impl Home {
             helping: false,
             joinable: HashSet::new(),
             oldest: false,
+            bridge: None,
+            bridge_file: home.join(".gluon").join("bridge"),
+            top_spans: Vec::new(),
+            foot_spans: Vec::new(),
         };
+        if h.bridge_file.exists() {
+            h.bridge = bridge::Bridge::new();
+        }
         h.layout();
         h
+    }
+
+    /// Ctrl+Shift+B: the bridge look on or off, kept for the next start.
+    fn toggle_bridge(&mut self) {
+        if let Some(mut b) = self.bridge.take() {
+            b.hide();
+            let _ = std::fs::remove_file(&self.bridge_file);
+            self.note = " The bridge look is off".into();
+        } else if let Some(b) = bridge::Bridge::new() {
+            self.bridge = Some(b);
+            let _ = std::fs::write(&self.bridge_file, "");
+            self.note = " The bridge look; Ctrl+Shift+B turns it off".into();
+        } else {
+            self.note = " The bridge look needs a terminal that shows pictures, as glass or kitty".into();
+        }
+    }
+
+    /// The picture down, when another tab or Claude takes the screen.
+    fn hide_bridge(&mut self) {
+        if let Some(b) = &mut self.bridge {
+            b.hide();
+        }
     }
 
     /// Rows above Claude: the bar and three fifths of the rest for the
@@ -1154,22 +1222,29 @@ impl Home {
 
     fn layout(&mut self) {
         let (cols, _) = Crust::terminal_size();
-        let h = Self::split().0 - 1;
-        let lw = cols / 2;
-        let rw = cols.saturating_sub(lw);
+        let on = self.bridge.is_some();
+        // The bridge look keeps the sidebar and a column beside it, and
+        // the row of its bottom bar.
+        let (x0, h) = if on { (bridge::SIDE + 2, Self::split().0 - 2) } else { (1, Self::split().0 - 1) };
+        let room = cols.saturating_sub(x0 - 1);
+        let lw = room / 2;
+        let rw = room.saturating_sub(lw);
         let ah = h / 2;
-        self.bar = Pane::new(1, 1, cols, 1, 255, 236);
+        self.bar = Pane::new(1, 1, cols, 1, 255, if on { 0 } else { 236 });
         self.bar.wrap = false;
-        self.boxes[BOX_MAIL].place(1, 2, lw, h);
-        self.boxes[BOX_AGENDA].place(lw + 1, 2, rw, ah);
-        self.boxes[BOX_TASKS].place(lw + 1, 2 + ah, rw, h - ah);
-        self.preview.place(lw + 1, 2, rw, h);
+        self.boxes[BOX_MAIL].place(x0, 2, lw, h);
+        self.boxes[BOX_AGENDA].place(x0 + lw, 2, rw, ah);
+        self.boxes[BOX_TASKS].place(x0 + lw, 2 + ah, rw, h - ah);
+        self.preview.place(x0 + lw, 2, rw, h);
         self.preview.pane.wrap = true;
         self.preview.title = " Message ".into();
         self.shown = None;
-        self.help.place(lw + 1, 2, rw, h);
+        self.help.place(x0 + lw, 2, rw, h);
         self.help.title = " Keys at Home ".into();
         self.help.set_rows(HELP.iter().map(|l| (None, help_row(l))).collect());
+        for f in self.boxes.iter_mut().chain([&mut self.preview, &mut self.help]) {
+            f.bridge = on;
+        }
     }
 
     /// The item picked in box `b`, its reference on the first line: the
@@ -1241,12 +1316,18 @@ impl Home {
     /// The whole tab, after another tab had the screen or it was resized.
     fn repaint(&mut self, mail: &kastrup::app::App, cal: &tock::app::App, claude: &mut Claude) {
         if let (true, Claude::On(c)) = (self.full, &mut *claude) {
+            if let Some(b) = &mut self.bridge {
+                b.hide();
+            }
             c.set_tab_line(Some(tab_line(HOME)));
             c.set_area(None);
             c.set_focus(true);
             return;
         }
         Crust::clear_screen();
+        if let Some(b) = &mut self.bridge {
+            b.forget();
+        }
         self.layout();
         self.paint(mail, cal, true);
         match claude {
@@ -1467,7 +1548,16 @@ impl Home {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
-        if force || now / 60 != self.minute || self.note != self.bar_note {
+        let relabel = force || now / 60 != self.minute || self.note != self.bar_note;
+        if relabel && self.bridge.is_some() {
+            if now / 60 != self.minute {
+                self.load_agenda(cal);
+            }
+            self.minute = now / 60;
+            self.bar_note = self.note.clone();
+            let line = self.bridge_bars(now);
+            drew |= show(&mut self.bar, line, force);
+        } else if relabel {
             if now / 60 != self.minute {
                 self.load_agenda(cal);
             }
@@ -1519,7 +1609,70 @@ impl Home {
                 drew |= self.boxes[i].draw(keys[i], force || swap);
             }
         }
+        if self.bridge.is_some() {
+            drew |= self.paint_bridge(now, relabel);
+        }
         drew
+    }
+
+    /// The top bar's text in the bridge look: the note after the corner,
+    /// the stardate (the year and its day) at the right; and the bottom
+    /// bar's, gluon and its version. Their spans go to the picture.
+    fn bridge_bars(&mut self, now: i64) -> String {
+        let cols = self.bar.w;
+        let badge = BADGE.lock().map(|b| b.clone()).unwrap_or_default();
+        let right = format!(" {badge}{} ", style::rgb(&format!("STARDATE {}", clock(now, "%Y.%j")), Some(bridge::PEACH), None, "b"));
+        let rw = crust::display_width(&right) as u16;
+        let rc = cols.saturating_sub(3 + rw);
+        let nc = bridge::SIDE + 2;
+        let note = self.note.trim();
+        let note = if note.is_empty() {
+            String::new()
+        } else {
+            crust::truncate_ansi(&format!(" {} ", style::rgb(note, Some(bridge::ORANGE), None, "")), rc.saturating_sub(nc + 2) as usize)
+        };
+        let nw = crust::display_width(&note) as u16;
+        self.top_spans = [(nc, nw), (rc, rw)].into_iter().filter(|s| s.1 > 0).collect();
+        let foot = format!(" GLUON {} ", env!("CARGO_PKG_VERSION"));
+        self.foot_spans = vec![(cols.saturating_sub(3 + foot.len() as u16), foot.len() as u16)];
+        let gap = rc.saturating_sub(nc + nw) as usize;
+        format!("{}{note}{}{right}", " ".repeat(nc as usize), " ".repeat(gap))
+    }
+
+    /// The picture, sent when what it shows changed, and the sidebar's
+    /// labels and the bottom bar's text, written with the top bar.
+    fn paint_bridge(&mut self, now: i64, relabel: bool) -> bool {
+        let (cols, _) = Crust::terminal_size();
+        let rows = Self::split().0;
+        let focus = self.focus;
+        let mut frames = vec![(&self.boxes[BOX_MAIL], focus == BOX_MAIL)];
+        match self.right {
+            2 => frames.push((&self.help, true)),
+            1 => frames.push((&self.preview, false)),
+            _ => frames.extend([(&self.boxes[BOX_AGENDA], focus == BOX_AGENDA), (&self.boxes[BOX_TASKS], focus == BOX_TASKS)]),
+        }
+        let heads: Vec<bridge::Head> = frames
+            .iter()
+            .map(|(f, focused)| bridge::Head {
+                row: f.y - 1,
+                col: f.x - 1,
+                cols: f.w,
+                title: crust::display_width(&f.bridge_title()) as u16,
+                focused: *focused,
+            })
+            .collect();
+        let plan = bridge::plan(cols, rows, focus.min(3), &heads, &self.top_spans, &self.foot_spans);
+        let labels = bridge::labels(&plan, &clock(now, "%H:%M"));
+        let Some(b) = &mut self.bridge else { return false };
+        let sent = b.show(plan);
+        if sent || relabel {
+            let foot: String = self.foot_spans.iter().map(|&(c, _)| {
+                Cursor::at(c + 1, rows) + &style::rgb(&format!(" GLUON {} ", env!("CARGO_PKG_VERSION")), Some(bridge::PEACH), None, "b")
+            }).collect();
+            print!("{labels}{foot}");
+            let _ = std::io::stdout().flush();
+        }
+        sent || relabel
     }
 
     /// The picked message, read again when the pick moved (kastrup keeps
@@ -1686,6 +1839,7 @@ const HELP: &[&str] = &[
     "0-9  that kastrup view in the Messages tab; ^0-9 from anywhere",
     "^⇧C ^⇧T  the Calendar, the Tasks, from anywhere",
     "^⇧S  ^S by itself at the times in ~/.gluon/auto",
+    "^⇧B  the bridge look, in glass or kitty",
     "^L  draw it all again     Q   quit",
 ];
 
@@ -1992,6 +2146,10 @@ fn main() {
                         }
                         home.repaint(&mail, &cal, &mut claude);
                     }
+                    _ if k == "C-S-B" => {
+                        home.toggle_bridge();
+                        home.repaint(&mail, &cal, &mut claude);
+                    }
                     // A box at Home has the keys, or Tab moves them on.
                     _ if !home.full && (!home.claude_keys() || k == "TAB" || k == "S-TAB") => {
                         match home.key(k, &mut claude) {
@@ -2061,6 +2219,8 @@ fn main() {
             }
             if n == HOME {
                 back = tab;
+            } else if tab == HOME {
+                home.hide_bridge();
             }
             from_home = act.is_some();
             tab = n;
@@ -2152,6 +2312,7 @@ fn main() {
             e.close();
         }
     }
+    home.hide_bridge();
     if let Claude::On(c) = claude {
         keep(&dir, c.session_id());
         deck::app::finish(c);
