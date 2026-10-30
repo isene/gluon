@@ -968,7 +968,7 @@ impl Auto {
         if !self.on() {
             return String::new();
         }
-        style::bg_rgb(&style::bold(&style::fg(&format!(" ◷ ideas {} ", self.list()), 136)), "#161a00") + "  "
+        style::fg(&format!("◷ ideas {}", self.list()), 136) + "  "
     }
 }
 
