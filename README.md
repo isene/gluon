@@ -28,8 +28,10 @@ Home has four parts, three boxes over Claude:
 
 **Ctrl+Shift+B** dresses Home as a Star Trek panel: orange arms round
 the boxes and Claude, a coloured button for each part and a stardate,
-drawn in real pixels in glass or kitty. The same key brings the plain look back, and
-gluon remembers the choice in `~/.gluon/bridge`.
+drawn in real pixels in glass or kitty. Pressed again, it turns the panel
+and the rest of the screen Matrix green (in glass) and Claude's answers
+settle out of green glyphs. A third press brings the plain look back,
+and gluon remembers the choice in `~/.gluon/bridge`.
 
 **Tab** moves the keys from box to box and on to Claude (**Shift+Tab**
 goes back, **Esc** jumps to Claude). In a box, the arrows pick a row

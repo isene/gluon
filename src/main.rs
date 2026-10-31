@@ -1142,6 +1142,9 @@ struct Home {
     /// and the text spans its top and bottom bars leave open.
     bridge: Option<bridge::Bridge>,
     bridge_file: PathBuf,
+    /// The matrix look: the bridge in green through glass's tint, and
+    /// deck's Matrix decode on (~/.gluon/bridge holds "matrix").
+    matrix: bool,
     top_spans: Vec<(u16, u16)>,
     foot_spans: Vec<(u16, u16)>,
 }
@@ -1180,26 +1183,45 @@ impl Home {
             oldest: false,
             bridge: None,
             bridge_file: home.join(".gluon").join("bridge"),
+            matrix: false,
             top_spans: Vec::new(),
             foot_spans: Vec::new(),
         };
         if h.bridge_file.exists() {
             h.bridge = bridge::Bridge::new();
+            h.matrix = h.bridge.is_some() && bridge::is_matrix(&h.bridge_file);
+            if h.matrix {
+                print!("{}", style::tint_seq(Some(bridge::MATRIX)));
+            }
         }
         h.layout();
         h
     }
 
-    /// Ctrl+Shift+B: the bridge look on or off, kept for the next start.
-    fn toggle_bridge(&mut self) {
-        if let Some(mut b) = self.bridge.take() {
-            b.hide();
+    /// Ctrl+Shift+B: the next look, kept for the next start. Plain, then
+    /// the bridge, then the matrix look (the bridge in green through
+    /// glass's tint, with deck's decode on), then plain again.
+    fn cycle_look(&mut self) {
+        if self.matrix {
+            self.matrix = false;
+            print!("{}", style::tint_seq(None));
+            if let Some(mut b) = self.bridge.take() {
+                b.hide();
+            }
             let _ = std::fs::remove_file(&self.bridge_file);
-            self.note = " The bridge look is off".into();
+            self.note = " The plain look".into();
+        } else if let Some(mut b) = self.bridge.take() {
+            // The picture goes up again after the tint, so it is green too.
+            b.hide();
+            self.matrix = true;
+            print!("{}", style::tint_seq(Some(bridge::MATRIX)));
+            self.bridge = bridge::Bridge::new();
+            let _ = std::fs::write(&self.bridge_file, "matrix");
+            self.note = " The matrix look, green in glass; Ctrl+Shift+B goes back to plain".into();
         } else if let Some(b) = bridge::Bridge::new() {
             self.bridge = Some(b);
             let _ = std::fs::write(&self.bridge_file, "");
-            self.note = " The bridge look; Ctrl+Shift+B turns it off".into();
+            self.note = " The bridge look; Ctrl+Shift+B for the matrix look".into();
         } else {
             self.note = " The bridge look needs a terminal that shows pictures, as glass or kitty".into();
         }
@@ -1996,6 +2018,9 @@ fn main() {
     let unseen = Unseen::new();
     let mut tasks = Tasks::new(&dir);
     let mut home = Home::new(&dir);
+    if let Some(c) = claude.app() {
+        c.matrix = home.matrix;
+    }
     let mut tab = HOME;
     // Where Ctrl+A at Home goes back to.
     let mut back = MAIL;
@@ -2171,7 +2196,10 @@ fn main() {
                         home.repaint(&mail, &cal, &mut claude);
                     }
                     _ if k == "C-S-B" => {
-                        home.toggle_bridge();
+                        home.cycle_look();
+                        if let Some(c) = claude.app() {
+                            c.matrix = home.matrix;
+                        }
                         home.repaint(&mail, &cal, &mut claude);
                     }
                     // A box at Home has the keys, or Tab moves them on.
@@ -2337,6 +2365,9 @@ fn main() {
         }
     }
     home.hide_bridge();
+    if home.matrix {
+        print!("{}", style::tint_seq(None));
+    }
     if let Claude::On(c) = claude {
         keep(&dir, c.session_id());
         deck::app::finish(c);
