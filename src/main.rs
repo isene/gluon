@@ -1633,8 +1633,9 @@ impl Home {
     /// bar's, gluon and its version. Their spans go to the picture.
     fn bridge_bars(&mut self, now: i64) -> String {
         let cols = self.bar.w;
-        let badge = BADGE.lock().map(|b| b.clone()).unwrap_or_default();
-        let right = format!(" {badge}{} ", style::rgb(&format!("STARDATE {}", clock(now, "%Y.%j")), Some(bridge::PEACH), None, "b"));
+        // Black on the bar's orange, so the bar stays whole under the text.
+        let badge = crust::strip_ansi(&BADGE.lock().map(|b| b.clone()).unwrap_or_default());
+        let right = bridge::on_bar(&format!(" {badge}STARDATE {} ", clock(now, "%Y.%j")), bridge::ORANGE);
         let rw = crust::display_width(&right) as u16;
         let rc = cols.saturating_sub(3 + rw);
         let nc = bridge::SIDE + 2;
@@ -1642,7 +1643,7 @@ impl Home {
         let note = if note.is_empty() {
             String::new()
         } else {
-            crust::truncate_ansi(&format!(" {} ", style::rgb(note, Some(bridge::ORANGE), None, "")), rc.saturating_sub(nc + 2) as usize)
+            bridge::on_bar(&crust::truncate_ansi(&format!(" {note} "), rc.saturating_sub(nc + 2) as usize), bridge::ORANGE)
         };
         let nw = crust::display_width(&note) as u16;
         self.top_spans = [(nc, nw), (rc, rw)].into_iter().filter(|s| s.1 > 0).collect();
@@ -1680,7 +1681,7 @@ impl Home {
         let sent = b.show(plan);
         if sent || relabel {
             let foot: String = self.foot_spans.iter().map(|&(c, _)| {
-                Cursor::at(c + 1, mid + 1) + &style::rgb(&format!(" GLUON {} ", env!("CARGO_PKG_VERSION")), Some(bridge::PEACH), None, "b")
+                Cursor::at(c + 1, mid + 1) + &bridge::on_bar(&format!(" GLUON {} ", env!("CARGO_PKG_VERSION")), bridge::ORANGE)
             }).collect();
             print!("{labels}{foot}");
             let _ = std::io::stdout().flush();
