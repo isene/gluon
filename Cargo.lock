@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "deck"
-version = "0.1.35"
+version = "0.1.37"
 dependencies = [
  "fe2o3-crust",
  "fe2o3-glow",
