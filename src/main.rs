@@ -1332,6 +1332,7 @@ impl Home {
                 b.hide();
             }
             c.set_tab_line(Some(tab_line(HOME)));
+            c.set_side(None);
             c.set_area(None);
             c.set_focus(true);
             return;
@@ -1345,11 +1346,19 @@ impl Home {
         match claude {
             Claude::On(c) => {
                 c.set_tab_line(Some(claude_label(self.claude_keys())));
+                c.set_side(self.side_parts());
                 c.set_area(Some(self.claude_area()));
                 c.set_focus(self.claude_keys());
             }
             other => self.claude_off(other),
         }
+    }
+
+    /// The sidebar parts beside Claude in the bridge look, for deck to
+    /// label with what its status line would say.
+    fn side_parts(&self) -> Option<Vec<bridge::Part>> {
+        let (_, rows) = Crust::terminal_size();
+        self.bridge.as_ref().map(|_| bridge::comms(rows, Self::split().0 - 1, self.claude_keys()))
     }
 
     /// Claude's rows when it could not start.
@@ -1373,6 +1382,7 @@ impl Home {
         match claude {
             Claude::On(c) => {
                 c.set_tab_line(Some(claude_label(keys)));
+                c.set_side(self.side_parts());
                 c.set_focus(keys);
             }
             other => self.claude_off(other),

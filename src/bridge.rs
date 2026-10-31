@@ -25,14 +25,36 @@ pub struct Head {
     pub focused: bool,
 }
 
+/// The sidebar's rows beside Claude, from and to: below the crossing and
+/// above the bottom corner. Also the buttons' rows and where the red part
+/// ends, as (each, join, below, bottom).
+fn rows_of(rows: u16, mid: u16) -> (u16, u16, u16, u16) {
+    // The buttons share what the corners leave above the bar, up to three rows each.
+    let each = (mid.saturating_sub(6) / 4).clamp(1, 3);
+    let join = mid.saturating_sub(2).max(2 + 4 * each);
+    let below = (mid + 2).max(join + 1);
+    (each, join, below, rows.saturating_sub(3).max(below))
+}
+
+/// The parts beside Claude, which deck labels: the session, the model,
+/// the context, the week's limit, and the state in sky blue, lit with the
+/// Claude button (`lit`).
+pub fn comms(rows: u16, mid: u16, lit: bool) -> Vec<Part> {
+    let (_, _, below, bottom) = rows_of(rows, mid);
+    if bottom > below {
+        info(below, bottom, if lit { SKY } else { dim(SKY) })
+    } else {
+        Vec::new()
+    }
+}
+
 /// The plan for the screen: Home above the bar at row `mid`, Claude
 /// below it; the box with the keys lit (`focus` 0 to 3, 3 for Claude),
 /// the boxes' headers, and the text spans in the top bar and the middle
 /// one (column, cells).
 pub fn plan(cols: u16, rows: u16, mid: u16, focus: usize, heads: &[Head], top: &[(u16, u16)], foot: &[(u16, u16)]) -> Plan {
     let mut p = Plan { cols, rows, mid, ..Plan::default() };
-    // The buttons share what the corners leave above the bar, up to three rows each.
-    let each = (mid.saturating_sub(6) / 4).clamp(1, 3);
+    let (each, join, below, bottom) = rows_of(rows, mid);
     p.parts.push((0, 2, ORANGE, None));
     p.lit.push(1 + focus.min(3));
     for (i, name) in NAMES.iter().enumerate() {
@@ -40,26 +62,18 @@ pub fn plan(cols: u16, rows: u16, mid: u16, focus: usize, heads: &[Head], top: &
         p.parts.push((2 + i as u16 * each, each, c, Some(*name)));
     }
     let after = 2 + 4 * each;
-    let join = mid.saturating_sub(2).max(after);
     if join > after {
         p.parts.push((after, join - after, RED, Some("")));
     }
-    let below = (mid + 2).max(join + 1);
     p.parts.push((join, below - join, ORANGE, None));
-    let bottom = rows.saturating_sub(3).max(below);
-    if bottom > below {
-        // Beside Claude, lit with the Claude button.
-        if focus == 3 {
-            p.lit.push(p.parts.len());
-        }
-        p.parts.push((below, bottom - below, if focus == 3 { SKY } else { dim(SKY) }, Some("COMMS")));
+    let side = comms(rows, mid, focus == 3);
+    // The last of them, the state, is lit with the Claude button.
+    if focus == 3 && !side.is_empty() {
+        p.lit.push(p.parts.len() + side.len() - 1);
     }
+    p.parts.extend(side);
     p.parts.push((bottom, rows.saturating_sub(bottom), ORANGE, None));
-    for (row, rows, _, label) in &p.parts {
-        if label.is_some() {
-            p.holes.push((row + rows - 1, 0, SIDE));
-        }
-    }
+    p.holes = label_holes(&p.parts);
     for h in heads {
         let c = if h.focused { ORANGE } else { PERI };
         p.bars.push((h.row, h.col, h.cols.saturating_sub(1), c));
@@ -76,11 +90,11 @@ pub fn plan(cols: u16, rows: u16, mid: u16, focus: usize, heads: &[Head], top: &
 
 /// The sidebar's labels, black on their buttons, right-aligned on each
 /// button's last row, at 1-based cursor positions; `clock` on the part
-/// that has no name.
+/// that has no name. deck writes the labels beside Claude.
 pub fn labels(p: &Plan, clock: &str) -> String {
     let mut s = String::new();
     for (row, rows, c, label) in &p.parts {
-        if let Some(name) = label {
+        if let Some(name) = label.filter(|n| NAMES.contains(n) || n.is_empty()) {
             let name = if name.is_empty() { clock } else { name };
             let text = format!("{name:>w$} ", w = SIDE as usize - 1);
             s += &(Cursor::at(1, row + rows) + &style::rgb(&text, Some((0, 0, 0)), Some(*c), "b"));
@@ -105,11 +119,17 @@ mod tests {
     #[test]
     fn the_buttons_fit_between_the_corners() {
         let p = sample();
-        assert_eq!(p.parts.len(), 9);
+        assert_eq!(p.parts.len(), 13);
         assert_eq!(p.parts[1], (2, 3, PEACH, Some("MESSAGES")));
         assert_eq!(p.parts[2], (5, 3, (122, 91, 122), Some("AGENDA")));
         assert_eq!(p.lit, vec![1]);
         assert_eq!(p.parts[6], (31, 4, ORANGE, None), "the crossing");
+        // Beside Claude: deck's four buttons of a row each, then the state.
+        assert_eq!(p.parts[7], (35, 1, LILAC, Some("tag")));
+        assert_eq!(p.parts[11], (39, 9, dim(SKY), Some("state")));
+        assert!(p.holes.contains(&(47, 0, SIDE)) && p.holes.contains(&(41, 0, SIDE)) && !p.holes.contains(&(40, 0, SIDE)));
+        assert_eq!(comms(51, 33, false), p.parts[7..12].to_vec(), "deck gets the parts gluon draws");
+        assert!(!labels(&p, "03:11").contains("tag"), "deck writes those labels");
         assert_eq!(p.parts.last().unwrap().0 + p.parts.last().unwrap().1, 51);
         // Short screens get one-row buttons, and the parts still fit.
         let small = plan(80, 16, 9, 3, &[], &[], &[]);
