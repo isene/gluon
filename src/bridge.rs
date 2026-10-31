@@ -246,6 +246,40 @@ pub fn picture(p: &Plan, cell: Option<(u16, u16)>) -> Canvas {
     c
 }
 
+/// The strips that hold all of the picture's colour, as row, column, rows
+/// and columns from 0: the arms along the top, the middle and the bottom,
+/// the sidebar between them, and the boxes' header bars. The terminal
+/// blends a picture again over each row of text that changes under it,
+/// so text outside the strips costs nothing extra.
+pub fn pieces(p: &Plan) -> Vec<(u16, u16, u16, u16)> {
+    // A lit button reaches one column past the sidebar.
+    let (strip, last) = (SIDE + 1, p.rows.saturating_sub(1));
+    let mut v = vec![
+        (0, 0, 1, p.cols),
+        (1, 0, p.mid.saturating_sub(1), strip),
+        (p.mid, 0, 1, p.cols),
+        (p.mid + 1, 0, last.saturating_sub(p.mid + 1), strip),
+        (last, 0, 1, p.cols),
+    ];
+    for &(row, col, cols, _) in &p.bars {
+        v.push((row, col, 1, cols));
+    }
+    v.retain(|&(_, _, rows, cols)| rows > 0 && cols > 0);
+    v
+}
+
+/// Those cells of a canvas as a canvas of their own.
+fn cut(c: &Canvas, (row, col, rows, cols): (u16, u16, u16, u16)) -> Canvas {
+    let px = |n: u16, cell: f64, max: usize| ((n as f64 * cell).round() as usize).min(max);
+    let (x0, x1) = (px(col, c.cell_w(), c.w), px(col + cols, c.cell_w(), c.w));
+    let (y0, y1) = (px(row, c.cell_h(), c.h), px(row + rows, c.cell_h(), c.h));
+    let mut rgba = Vec::with_capacity((x1 - x0) * (y1 - y0) * 4);
+    for y in y0..y1 {
+        rgba.extend_from_slice(&c.rgba[(y * c.w + x0) * 4..(y * c.w + x1) * 4]);
+    }
+    Canvas { cols, rows, cell: c.cell, w: x1 - x0, h: y1 - y0, rgba }
+}
+
 /// The picture on the terminal, and the plan it was made from.
 pub struct Bridge {
     display: Display,
@@ -265,7 +299,10 @@ impl Bridge {
         if self.shown.as_ref() == Some(&plan) {
             return false;
         }
-        self.display.swap_canvas(&picture(&plan, None), 1, 1);
+        let whole = picture(&plan, None);
+        let cuts: Vec<_> = pieces(&plan).into_iter().map(|q| (cut(&whole, q), q.0, q.1)).collect();
+        let list: Vec<_> = cuts.iter().map(|(c, row, col)| (c, col + 1, row + 1)).collect();
+        self.display.swap_canvases(&list);
         self.shown = Some(plan);
         true
     }
@@ -323,8 +360,40 @@ mod tests {
         assert_eq!(alpha(2, 40), 255, "the sidebar beside Claude");
         assert_eq!(alpha(12, 3), 255, "the lit button reaches across the gap");
         assert_eq!(alpha(12, 6), 0, "the others stop at the sidebar");
+        let piece = cut(&c, (33, 0, 1, 174));
+        assert_eq!(piece.rgba[..], c.rgba[33 * 21 * c.w * 4..34 * 21 * c.w * 4], "a cut row is the row");
         if let Ok(path) = std::env::var("BRIDGE_DUMP") {
             std::fs::write(path, c.png()).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_pieces_hold_all_the_colour_and_never_overlap() {
+        let heads = [
+            Head { row: 1, col: 13, cols: 80, title: 14, focused: true },
+            Head { row: 17, col: 93, cols: 81, title: 7, focused: false },
+        ];
+        for focus in 0..4 {
+            let p = plan(174, 51, 33, focus, &heads, &[(15, 20)], &[(150, 14)]);
+            let c = picture(&p, Some((11, 21)));
+            let mut owner = vec![0u8; 174 * 51];
+            for (row, col, rows, cols) in pieces(&p) {
+                for r in row..row + rows {
+                    for k in col..col + cols {
+                        owner[r as usize * 174 + k as usize] += 1;
+                    }
+                }
+            }
+            assert!(owner.iter().all(|&n| n <= 1), "pieces overlap");
+            for y in 0..c.h {
+                for x in 0..c.w {
+                    if c.rgba[(y * c.w + x) * 4 + 3] > 0 {
+                        assert_eq!(owner[y / 21 * 174 + x / 11], 1, "colour outside the pieces at {x},{y}, focus {focus}");
+                    }
+                }
+            }
+            let covered = owner.iter().filter(|&&n| n == 1).count();
+            assert!(covered * 5 < owner.len(), "the pieces cover {covered} of {} cells", owner.len());
         }
     }
 }
