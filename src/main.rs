@@ -2015,6 +2015,7 @@ fn main() {
     let mut auto = Auto::load(&dir);
     mail.set_tab_line(Some(tab_line(MAIL)));
     cal.set_tab_line(Some(tab_line(CALENDAR)));
+    cal.set_contacts(mail.contact_lookup());
     let unseen = Unseen::new();
     let mut tasks = Tasks::new(&dir);
     let mut home = Home::new(&dir);
