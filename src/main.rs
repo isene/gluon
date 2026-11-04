@@ -1796,7 +1796,7 @@ impl Home {
         let b = &mut self.boxes[BOX_MAIL];
         let order = if self.oldest { " · oldest first" } else { "" };
         let sending = self.sending.as_ref().map_or(String::new(), |n| format!(" · {n}"));
-        b.title = format!(" Unread · {}{more}{marks}{}{order}{sending} ", list.len(), drafts_label(self.drafts));
+        b.title = format!(" Messages · U {}{more}{marks}{}{order}{sending} ", list.len(), drafts_label(self.drafts));
         b.set_rows(rows);
     }
 
@@ -2382,9 +2382,10 @@ fn main() {
     kastrup::app::finish(mail);
 }
 
-/// The drafts after the unread count in the mail box's title, when there are any.
+/// The drafts in the mail box's title, in brackets as in kastrup's top bar,
+/// when there are any.
 fn drafts_label(n: usize) -> String {
-    if n > 0 { format!("   Drafts · {n}") } else { String::new() }
+    if n > 0 { format!(" · [{n}]") } else { String::new() }
 }
 
 /// A note on the bridge look's orange bar: black, whatever colour the
@@ -2400,7 +2401,7 @@ mod tests {
     #[test]
     fn drafts_show_only_when_there_are_some() {
         assert_eq!(drafts_label(0), "");
-        assert_eq!(drafts_label(2), "   Drafts · 2");
+        assert_eq!(drafts_label(2), " · [2]");
     }
 
     #[test]

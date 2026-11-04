@@ -19,8 +19,8 @@ parts of one screen, so every key you know from them works the same here.
 Home has four parts, three boxes over Claude:
 - top left, the unread mail in kastrup's views 1, 2 and 3, newest first,
   each with its view's key in the view's colour (other views: put their keys in
-  `~/.gluon/views`, as `1 2 4`); its title also counts the drafts waiting
-  in kastrup's `+`, when there are any;
+  `~/.gluon/views`, as `1 2 4`); its title, as `Messages · U 3 · R 2 · [2]`,
+  counts the unread, those marked read and the drafts in kastrup's `+`;
 - top right, what is left of today and the coming 30 days in tock, with a
   line between one day and the next;
 - under it, your task list;
