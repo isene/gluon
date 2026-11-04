@@ -1796,7 +1796,8 @@ impl Home {
         let b = &mut self.boxes[BOX_MAIL];
         let order = if self.oldest { " · oldest first" } else { "" };
         let sending = self.sending.as_ref().map_or(String::new(), |n| format!(" · {n}"));
-        b.title = format!(" Messages · U {}{more}{marks}{}{order}{sending} ", list.len(), drafts_label(self.drafts));
+        let unread = if list.is_empty() { String::new() } else { format!(" · U {}{more}", list.len()) };
+        b.title = format!(" Messages{unread}{marks}{}{order}{sending} ", drafts_label(self.drafts));
         b.set_rows(rows);
     }
 
