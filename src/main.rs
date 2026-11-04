@@ -1675,7 +1675,7 @@ impl Home {
         let note = if note.is_empty() {
             String::new()
         } else {
-            bridge::on_bar(&crust::truncate_ansi(&format!(" {note} "), rc.saturating_sub(nc + 2) as usize), bridge::ORANGE)
+            bar_text(note, rc.saturating_sub(nc + 2) as usize)
         };
         let nw = crust::display_width(&note) as u16;
         self.top_spans = [(nc, nw), (rc, rw)].into_iter().filter(|s| s.1 > 0).collect();
@@ -2377,9 +2377,23 @@ fn main() {
     kastrup::app::finish(mail);
 }
 
+/// A note on the bridge look's orange bar: black, whatever colour the
+/// note was given for the plain bar, since green on orange is hard to read.
+fn bar_text(note: &str, fit: usize) -> String {
+    bridge::on_bar(&crust::truncate_ansi(&format!(" {} ", crust::strip_ansi(note).trim()), fit), bridge::ORANGE)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_note_on_the_orange_bar_is_black() {
+        let sent = style::fg(" Sent to alice@example.com", 156);
+        let bar = bar_text(&sent, 60);
+        assert!(!bar.contains("38;5;156"), "the plain bar's green is gone");
+        assert_eq!(crust::strip_ansi(&bar), " Sent to alice@example.com ");
+    }
 
     #[test]
     fn a_timed_sweep_runs_once_at_its_time_and_once_after_a_sleep() {
