@@ -1122,6 +1122,8 @@ struct Home {
     /// kastrup's "↑ Sending to X…" when the mail box was made, if a mail
     /// was on the wire.
     sending: Option<String>,
+    /// kastrup's count of drafts, postponed and scheduled mail.
+    drafts: usize,
     minute: i64,
     mtime: Option<std::time::SystemTime>,
     full: bool,
@@ -1171,6 +1173,7 @@ impl Home {
             todo: home.join(".tasks").join("todo.hl"),
             sig: None,
             sending: None,
+            drafts: 0,
             minute: 0,
             mtime: None,
             full: false,
@@ -1585,9 +1588,11 @@ impl Home {
         let sig = mail.db_signature();
         // A mail on the wire, or else one that failed and waits in the drafts.
         let sending = mail.send_note().or_else(|| mail.unsent_note());
-        if force || self.sig != Some(sig) || sending != self.sending {
+        let drafts = mail.draft_count();
+        if force || self.sig != Some(sig) || sending != self.sending || drafts != self.drafts {
             self.sig = Some(sig);
             self.sending = sending;
+            self.drafts = drafts;
             self.load_mail(mail);
         }
         let now = std::time::SystemTime::now()
@@ -1791,7 +1796,7 @@ impl Home {
         let b = &mut self.boxes[BOX_MAIL];
         let order = if self.oldest { " · oldest first" } else { "" };
         let sending = self.sending.as_ref().map_or(String::new(), |n| format!(" · {n}"));
-        b.title = format!(" Unread · {}{more}{marks}{order}{sending} ", list.len());
+        b.title = format!(" Unread · {}{more}{marks}{}{order}{sending} ", list.len(), drafts_label(self.drafts));
         b.set_rows(rows);
     }
 
@@ -2377,6 +2382,11 @@ fn main() {
     kastrup::app::finish(mail);
 }
 
+/// The drafts after the unread count in the mail box's title, when there are any.
+fn drafts_label(n: usize) -> String {
+    if n > 0 { format!("   Drafts · {n}") } else { String::new() }
+}
+
 /// A note on the bridge look's orange bar: black, whatever colour the
 /// note was given for the plain bar, since green on orange is hard to read.
 fn bar_text(note: &str, fit: usize) -> String {
@@ -2386,6 +2396,12 @@ fn bar_text(note: &str, fit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drafts_show_only_when_there_are_some() {
+        assert_eq!(drafts_label(0), "");
+        assert_eq!(drafts_label(2), "   Drafts · 2");
+    }
 
     #[test]
     fn a_note_on_the_orange_bar_is_black() {
