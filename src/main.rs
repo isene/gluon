@@ -1064,6 +1064,9 @@ enum Act {
     Mail(i64, Option<String>),
     /// Messages for kastrup to mark read, and to delete.
     Purge(Vec<i64>, Vec<i64>),
+    /// A message tagged in kastrup (t in the mail box), or not, so s and
+    /// kastrup's other keys act on every tagged message.
+    Tag(i64, bool),
     /// The Calendar on an event, by its id and start.
     Event(i64, i64),
     /// The meeting of an event opened (J), by its id and start.
@@ -1451,13 +1454,18 @@ impl Home {
                 let page = b.pane.h as isize;
                 let all = b.rows.len() as isize;
                 // In the mail box, kastrup's letters act on the picked
-                // message, but t and ? are Home's.
+                // message, or on the tagged ones; ? is Home's.
                 let vi = self.focus != BOX_MAIL;
                 match k {
                     "DOWN" => b.turn(1),
                     "UP" => b.turn(-1),
                     "j" if vi => b.turn(1),
                     "k" if vi => b.turn(-1),
+                    "t" if !vi => {
+                        let (id, _) = b.picked()?;
+                        b.tag();
+                        return Some(Act::Tag(id, b.tags.contains(&(id, 0))));
+                    }
                     "t" => b.tag(),
                     "?" => self.helping = true,
                     "PgDOWN" => b.step(page),
@@ -1794,6 +1802,7 @@ impl Home {
         let d = list.iter().filter(|u| self.marked_del.contains(&u.id)).count();
         let marks: String = [("R", r), ("D", d)].iter().filter(|m| m.1 > 0).map(|(k, n)| format!(" · {k} {n}")).collect();
         let b = &mut self.boxes[BOX_MAIL];
+        b.tags = list.iter().filter(|u| mail.is_tagged(u.id)).map(|u| (u.id, 0)).collect();
         let order = if self.oldest { " · oldest first" } else { "" };
         let sending = self.sending.as_ref().map_or(String::new(), |n| format!(" · {n}"));
         let unread = if list.is_empty() { String::new() } else { format!(" · U {}{more}", list.len()) };
@@ -1880,6 +1889,7 @@ const HELP: &[&str] = &[
     "R A d  mark read or not, all read, for deletion",
     "<  mark the R ones read and delete the D ones",
     "i  oldest first or newest; r f s h * as in kastrup",
+    "t  kastrup's tag too, so s files every tagged message",
     "v V  the attachments; the images, in the Messages tab",
     "Agenda and Tasks",
     "J  join the meeting of an event marked ▶",
@@ -2216,7 +2226,11 @@ fn main() {
                             Some(a @ (Act::Mail(..) | Act::Compose)) => (act, next) = (Some(a), Some(MAIL)),
                             Some(a @ Act::Event(..)) => (act, next) = (Some(a), Some(CALENDAR)),
                             Some(Act::Purge(read, del)) => unseen.run(|| mail.read_and_delete(read, del)),
+                            Some(Act::Tag(id, on)) => mail.tag(id, on),
                             Some(Act::Context(items)) => {
+                                for &(_, id, _) in items.iter().filter(|i| i.0 == BOX_MAIL) {
+                                    mail.tag(id, false);
+                                }
                                 let text: Vec<String> = items.iter()
                                     .map(|&(b, id, start)| home.item(b, id, start, &mail, &cal))
                                     .filter(|t| !t.is_empty())

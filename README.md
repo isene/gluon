@@ -74,6 +74,8 @@ tag off. When the keys go from a box to Claude (Esc or Tab), Claude gets
 every tagged row of all three boxes with your next prompt, or else the row
 picked in that box: two messages, an event and three tasks, say, to talk
 about together. The tags go with them.
+In the mail box the tag is kastrup's own, so `s` files every tagged
+message at once, as in kastrup.
 
 **Ctrl+S** at Home asks Claude, in the pane below, what to do about the
 unread mail, the agenda and the tasks, which go with the question. Claude
