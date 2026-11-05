@@ -652,6 +652,8 @@ struct Frame {
     /// Drawn in the bridge look: the title and keys alone, the bars are
     /// the picture's.
     bridge: bool,
+    /// The keys left out of the bottom edge (Ctrl+Shift+K).
+    quiet: bool,
 }
 
 impl Frame {
@@ -668,6 +670,7 @@ impl Frame {
             drawn: None,
             tags: HashSet::new(),
             bridge: false,
+            quiet: false,
         }
     }
 
@@ -809,7 +812,7 @@ impl Frame {
             style::fg(&format!("{left}─"), c) + &text + &style::fg(&("─".repeat(rest) + right), c)
         };
         let title = if focused { style::bold(&style::fg(&self.title, 255)) } else { style::fg(&self.title, 245) };
-        let keys = if focused { style::fg(self.keys, 245) } else { String::new() };
+        let keys = if focused && !self.quiet { style::fg(self.keys, 245) } else { String::new() };
         let mut s = Cursor::at(self.x, self.y) + &edge("╭", title, "╮");
         // The sides with the margin inside them, so nothing another box
         // drew in that column stays.
@@ -834,7 +837,7 @@ impl Frame {
             s += &(Cursor::at(self.x + self.w - 2, self.y + r) + "  ");
         }
         s += &(Cursor::at(self.x, self.y + self.h - 1) + &blank);
-        if focused {
+        if focused && !self.quiet {
             s += &(Cursor::at(self.x + 2, self.y + self.h - 1) + &style::fg(&crust::truncate_ansi(self.keys, self.inner()), 245));
         }
         print!("{s}");
@@ -1147,6 +1150,8 @@ struct Home {
     /// and the text spans its top and bottom bars leave open.
     bridge: Option<bridge::Bridge>,
     bridge_file: PathBuf,
+    /// The boxes' keys are hidden while this file exists.
+    nokeys: PathBuf,
     /// The matrix look: the bridge in green through glass's tint, and
     /// deck's Matrix decode on (~/.gluon/bridge holds "matrix").
     matrix: bool,
@@ -1189,10 +1194,15 @@ impl Home {
             oldest: false,
             bridge: None,
             bridge_file: home.join(".gluon").join("bridge"),
+            nokeys: home.join(".gluon").join("nokeys"),
             matrix: false,
             top_spans: Vec::new(),
             foot_spans: Vec::new(),
         };
+        let quiet = h.nokeys.exists();
+        for b in &mut h.boxes {
+            b.quiet = quiet;
+        }
         if h.bridge_file.exists() {
             h.bridge = bridge::Bridge::new();
             h.matrix = h.bridge.is_some() && bridge::is_matrix(&h.bridge_file);
@@ -1231,6 +1241,22 @@ impl Home {
         } else {
             self.note = " The bridge look needs a terminal that shows pictures, as glass or kitty".into();
         }
+    }
+
+    /// Ctrl+Shift+K: the keys in the boxes' bottom edges, or not, kept
+    /// for the next start.
+    fn toggle_keys(&mut self) {
+        let quiet = !self.boxes[0].quiet;
+        for b in &mut self.boxes {
+            b.quiet = quiet;
+        }
+        self.note = if quiet {
+            let _ = std::fs::write(&self.nokeys, "");
+            " The keys hidden; Ctrl+Shift+K shows them, ? lists them".into()
+        } else {
+            let _ = std::fs::remove_file(&self.nokeys);
+            " The keys shown".into()
+        };
     }
 
     /// The picture down, when another tab or Claude takes the screen.
@@ -1902,6 +1928,7 @@ const HELP: &[&str] = &[
     "^⇧C ^⇧T  the Calendar, the Tasks, from anywhere",
     "^⇧S  ^S by itself at the times in ~/.gluon/auto",
     "^⇧B  the bridge look, in glass or kitty",
+    "^⇧K  the keys in the boxes' edges, or not",
     "^L  draw it all again     Q   quit",
 ];
 
@@ -2210,6 +2237,10 @@ fn main() {
                         if claude.app().is_some() {
                             home.full = !home.full;
                         }
+                        home.repaint(&mail, &cal, &mut claude);
+                    }
+                    _ if k == "C-S-K" => {
+                        home.toggle_keys();
                         home.repaint(&mail, &cal, &mut claude);
                     }
                     _ if k == "C-S-B" => {

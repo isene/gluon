@@ -38,7 +38,8 @@ and gluon remembers the choice in `~/.gluon/bridge`.
 goes back, **Esc** jumps to Claude). In a box, the arrows pick a row
 (Down on the last row goes round to the first, and Up the other way),
 the box's keys show in its bottom edge, and `?` shows all the keys
-at Home:
+at Home. **Ctrl+Shift+K** hides the keys in the edges, or shows them
+again, and gluon remembers the choice in `~/.gluon/nokeys`:
 - Messages: the picked message shows on the right, in place of the agenda
   and the tasks, and stays unread; Space scrolls it and, at its end, goes
   on to the next message. Shift+Left scrolls back, and Shift+Down and
