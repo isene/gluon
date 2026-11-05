@@ -1088,6 +1088,8 @@ enum Act {
     Tag(i64, bool),
     /// The Calendar on an event, by its id and start.
     Event(i64, i64),
+    /// The guests of an event (I), asked in the Calendar, then Home.
+    Guests(i64, i64),
     /// The meeting of an event opened (J), by its id and start.
     Join(i64, i64),
     /// The task list in the editor, at a line.
@@ -1181,7 +1183,7 @@ impl Home {
             bar: Pane::new(1, 1, 1, 1, 255, 236),
             boxes: [
                 Frame::new(" Enter opens · R/A read · d delete · < clears · t tags · ? keys "),
-                Frame::new(" Enter opens · J joins ▶ · t tags · y/^Y copies · ? keys "),
+                Frame::new(" Enter opens · I guests · J joins ▶ · t tags · y/^Y copies · ? keys "),
                 Frame::new(" Enter edits · x done · d/< delete · t tags · y/^Y copies · ? keys "),
             ],
             preview: Frame::new(""),
@@ -1618,6 +1620,7 @@ impl Home {
                                 Some(Act::Mail(id, Some(k.into())))
                             }
                             (BOX_AGENDA, "ENTER") => Some(Act::Event(id, start)),
+                            (BOX_AGENDA, "I") => Some(Act::Guests(id, start)),
                             (BOX_TASKS, "ENTER" | "e") => Some(Act::Edit(id)),
                             _ => None,
                         };
@@ -1936,6 +1939,7 @@ const HELP: &[&str] = &[
     "v V  the attachments; the images, in the Messages tab",
     "Agenda and Tasks",
     "J  join the meeting of an event marked ▶",
+    "I  the guests of an event: invite, take off",
     "x d <  tick a task done; mark it for deletion; delete",
     "e  open the task list in scribe at that line",
     "Anywhere at Home",
@@ -2272,7 +2276,7 @@ fn main() {
                         match home.key(k, &mut claude) {
                             Some(a @ Act::Edit(..)) => (act, next) = (Some(a), Some(TASKS)),
                             Some(a @ (Act::Mail(..) | Act::Compose)) => (act, next) = (Some(a), Some(MAIL)),
-                            Some(a @ Act::Event(..)) => (act, next) = (Some(a), Some(CALENDAR)),
+                            Some(a @ (Act::Event(..) | Act::Guests(..))) => (act, next) = (Some(a), Some(CALENDAR)),
                             Some(Act::Purge(read, del)) => unseen.run(|| mail.read_and_delete(read, del)),
                             Some(Act::Tag(id, on)) => mail.tag(id, on),
                             Some(Act::Context(items)) => {
@@ -2394,6 +2398,18 @@ fn main() {
                 CALENDAR => {
                     if let Some(Act::Event(id, start)) = act {
                         cal.show_event(id, start);
+                    }
+                    // I in the agenda box: tock asks for the guests, then Home.
+                    if let Some(Act::Guests(id, start)) = act {
+                        cal.show_event(id, start);
+                        cal.repaint();
+                        cal.after_wait(Some("I".into()));
+                        (back, tab, from_home) = (CALENDAR, HOME, false);
+                        if let Some(c) = claude.app() {
+                            c.set_hidden(false);
+                        }
+                        home.repaint(&mail, &cal, &mut claude);
+                        continue;
                     }
                     // tock checks its goto file and the poller once a
                     // minute; an invite kastrup just accepted shows now.

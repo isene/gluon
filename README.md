@@ -62,6 +62,8 @@ again, and gluon remembers the choice in `~/.gluon/nokeys`:
   `tock:<id>` with its title and time. Ctrl+Y copies all of the event.
   A green ▶ marks an event with a Teams, Zoom or Meet link, and J joins
   it, as J does in tock.
+  I asks for the event's guests alone, in the Calendar tab, and comes
+  back Home: a new guest gets the invitation, as after an edit.
 - Calendar: a guest can be typed as a name, as in kastrup. One match is
   taken; several are listed by number; none asks for the address.
 - Tasks: Enter opens the task list in scribe at that line, and x ticks
