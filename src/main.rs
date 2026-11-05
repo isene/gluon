@@ -845,6 +845,22 @@ impl Frame {
     }
 }
 
+/// True once gluon's binary was rebuilt, so the bar can say so. One
+/// readlink each time the bar's text is made (once a minute at most).
+fn rebuilt() -> bool {
+    std::fs::read_link("/proc/self/exe").is_ok_and(|p| p.to_string_lossy().ends_with(" (deleted)"))
+}
+
+/// gluon's version on the bridge look's bottom bar, and its colour: red
+/// with RESTART once the binary was rebuilt.
+fn bridge_version() -> (String, bridge::Rgb) {
+    if rebuilt() {
+        (format!(" GLUON {} RESTART ", env!("CARGO_PKG_VERSION")), bridge::RED)
+    } else {
+        (format!(" GLUON {} ", env!("CARGO_PKG_VERSION")), bridge::ORANGE)
+    }
+}
+
 /// What Claude, in the pane below Home, is asked on Ctrl+S. The unread
 /// messages, the calendar and the task list go with it.
 const ASK: &str = "What should I do about the unread mail, the calendar and the tasks attached? Propose at most 8 things: tasks to add, events for the calendar, answers to messages that need one, and follow-ups I may miss (a task waiting on someone, an event to prepare for, mail I sent that got no answer). Leave out newsletters and notices that need nothing. Number them; I will say which to do. End with one short reflection on the days ahead: what matters most in them, and one way to meet it.";
@@ -1647,14 +1663,14 @@ impl Home {
             }
             self.minute = now / 60;
             let cols = self.bar.w as usize;
-            let right = style::fg(
-                &format!(
-                    "{} · gluon {} ",
-                    clock(now, "%a %e %b, week %V"),
-                    env!("CARGO_PKG_VERSION")
-                ),
-                245,
-            );
+            let version = format!("gluon {} ", env!("CARGO_PKG_VERSION"));
+            // Amber when old, as in kastrup and tock.
+            let version = if rebuilt() {
+                style::bold(&style::fg(&(version + "is old: restart "), 208))
+            } else {
+                style::fg(&version, 245)
+            };
+            let right = style::fg(&format!("{} · ", clock(now, "%a %e %b, week %V")), 245) + &version;
             self.bar_note = self.note.clone();
             let tabs = tab_line(HOME);
             let fit = cols.saturating_sub(crust::display_width(&tabs) + crust::display_width(&right) + 1);
@@ -1718,7 +1734,7 @@ impl Home {
         };
         let nw = crust::display_width(&note) as u16;
         self.top_spans = [(nc, nw), (rc, rw)].into_iter().filter(|s| s.1 > 0).collect();
-        let foot = format!(" GLUON {} ", env!("CARGO_PKG_VERSION"));
+        let foot = bridge_version().0;
         self.foot_spans = vec![(cols.saturating_sub(3 + foot.len() as u16), foot.len() as u16)];
         let gap = rc.saturating_sub(nc + nw) as usize;
         format!("{}{note}{}{right}", " ".repeat(nc as usize), " ".repeat(gap))
@@ -1751,8 +1767,9 @@ impl Home {
         let Some(b) = &mut self.bridge else { return false };
         let sent = b.show(plan);
         if sent || relabel {
+            let (version, colour) = bridge_version();
             let foot: String = self.foot_spans.iter().map(|&(c, _)| {
-                Cursor::at(c + 1, mid + 1) + &bridge::on_bar(&format!(" GLUON {} ", env!("CARGO_PKG_VERSION")), bridge::ORANGE)
+                Cursor::at(c + 1, mid + 1) + &bridge::on_bar(&version, colour)
             }).collect();
             print!("{labels}{foot}");
             let _ = std::io::stdout().flush();
