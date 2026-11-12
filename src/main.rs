@@ -1083,6 +1083,8 @@ enum Act {
     Mail(i64, Option<String>),
     /// Messages for kastrup to mark read, and to delete.
     Purge(Vec<i64>, Vec<i64>),
+    /// The invite in a mail accepted (a in the mail box).
+    Accept(i64),
     /// A message tagged in kastrup (t in the mail box), or not, so s and
     /// kastrup's other keys act on every tagged message.
     Tag(i64, bool),
@@ -1601,6 +1603,9 @@ impl Home {
                         self.oldest = !self.oldest;
                         self.sig = None;
                     }
+                    "a" if !vi && self.focus == BOX_MAIL => {
+                        return Some(Act::Accept(b.picked()?.0));
+                    }
                     "A" if !vi => {
                         self.marked_read.extend(b.rows.iter().filter_map(|r| r.0.map(|k| k.0)));
                         self.sig = None;
@@ -1934,6 +1939,7 @@ const HELP: &[&str] = &[
     "Space  scroll the message, at its end the next one",
     "R A d  mark read or not, all read, for deletion",
     "<  mark the R ones read and delete the D ones",
+    "a  accept the invite in the mail (kastrup's invite_accept)",
     "i  oldest first or newest; r f s h * as in kastrup",
     "t  kastrup's tag too, so s files every tagged message",
     "v V  the attachments; the images, in the Messages tab",
@@ -2279,6 +2285,7 @@ fn main() {
                             Some(a @ (Act::Event(..) | Act::Guests(..))) => (act, next) = (Some(a), Some(CALENDAR)),
                             Some(Act::Purge(read, del)) => unseen.run(|| mail.read_and_delete(read, del)),
                             Some(Act::Tag(id, on)) => mail.tag(id, on),
+                            Some(Act::Accept(id)) => home.note = format!(" {}", mail.accept_invite_id(id)),
                             Some(Act::Context(items)) => {
                                 for &(_, id, _) in items.iter().filter(|i| i.0 == BOX_MAIL) {
                                     mail.tag(id, false);

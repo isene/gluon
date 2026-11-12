@@ -50,6 +50,8 @@ again, and gluon remembers the choice in `~/.gluon/nokeys`:
   read in kastrup and deletes the D ones; the box's title counts both
   marks. i lists the oldest first, and i again the newest, as in
   kastrup. y copies `kastrup:<id>`, and Ctrl+Y the whole message.
+  a accepts the meeting invite in the mail, with the command kastrup's
+  `invite_accept` names.
   kastrup's keys for one message work too (r replies, f
   forwards, s files, h snoozes, v lists the attachments, * stars, and so
   on), and Home comes back when they are done; I, c and V (the images)
