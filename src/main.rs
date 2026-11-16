@@ -768,14 +768,19 @@ impl Frame {
         }
     }
 
+    /// The tagged rows, in the order they show.
+    fn tagged(&self) -> Vec<(i64, i64)> {
+        self.rows.iter().filter_map(|r| r.0).filter(|k| self.tags.contains(k)).collect()
+    }
+
     /// The tagged rows, in the order they show, and no tags left.
     fn take_tags(&mut self) -> Vec<(i64, i64)> {
-        if self.tags.is_empty() {
-            return Vec::new();
+        let tagged = self.tagged();
+        if !self.tags.is_empty() {
+            self.tags.clear();
+            self.dirty = true;
         }
-        let tags = std::mem::take(&mut self.tags);
-        self.dirty = true;
-        self.rows.iter().filter_map(|r| r.0).filter(|k| tags.contains(k)).collect()
+        tagged
     }
 
     /// The frame and the rows, each drawn when it changed, or both when
@@ -1108,7 +1113,7 @@ enum Act {
     /// Items in the boxes, by the box, the id and the start: the tagged
     /// ones, or else the picked one, for Claude when the keys went from a
     /// box to it.
-    Context(Vec<(usize, i64, i64)>),
+    Context(Vec<(usize, i64, i64)>, bool),
     /// The picked item, for the clipboard: its reference (y), or all of
     /// it (Ctrl+Y).
     Copy(usize, i64, i64, bool),
@@ -1491,17 +1496,20 @@ impl Home {
                 };
                 self.focus_on(to, claude);
                 // Claude gets the rows tagged in all three boxes, or else
-                // the one picked in the box the keys came from.
+                // the one picked in the box the keys came from. Esc takes
+                // the tags off; after Tab they stay, to show what Claude has.
                 if to == CLAUDE && from != CLAUDE {
+                    let clear = k == "ESC";
                     let mut items = Vec::new();
                     for (b, f) in self.boxes.iter_mut().enumerate() {
-                        items.extend(f.take_tags().into_iter().map(|(id, s)| (b, id, s)));
+                        let tagged = if clear { f.take_tags() } else { f.tagged() };
+                        items.extend(tagged.into_iter().map(|(id, s)| (b, id, s)));
                     }
                     if items.is_empty() {
                         let (id, start) = self.boxes[from].picked()?;
                         items.push((from, id, start));
                     }
-                    return Some(Act::Context(items));
+                    return Some(Act::Context(items, clear));
                 }
             }
             _ => {
@@ -2297,8 +2305,8 @@ fn main() {
                             Some(Act::Purge(read, del)) => unseen.run(|| mail.read_and_delete(read, del)),
                             Some(Act::Tag(id, on)) => mail.tag(id, on),
                             Some(Act::Accept(id)) => home.note = format!(" {}", mail.accept_invite_id(id)),
-                            Some(Act::Context(items)) => {
-                                for &(_, id, _) in items.iter().filter(|i| i.0 == BOX_MAIL) {
+                            Some(Act::Context(items, clear)) => {
+                                for &(_, id, _) in items.iter().filter(|i| clear && i.0 == BOX_MAIL) {
                                     mail.tag(id, false);
                                 }
                                 let text: Vec<String> = items.iter()
@@ -2599,6 +2607,9 @@ mod tests {
         f.tag();
         f.step(1);
         f.tag();
+        // Tab reads the tags and leaves them; Esc takes them.
+        assert_eq!(f.tagged(), vec![(1, line_key("a")), (3, line_key("c"))]);
+        assert_eq!(f.tags.len(), 2);
         assert_eq!(f.take_tags(), vec![(1, line_key("a")), (3, line_key("c"))]);
         assert!(f.take_tags().is_empty());
     }

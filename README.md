@@ -81,7 +81,8 @@ the tag colour of kastrup's theme, on a dark grey.
 When the keys go from a box to Claude (Esc or Tab), Claude gets
 every tagged row of all three boxes with your next prompt, or else the row
 picked in that box: two messages, an event and three tasks, say, to talk
-about together. The tags go with them.
+about together. Esc takes the tags off as it hands the rows over; after
+Tab they stay, so you see what Claude has.
 In the mail box the tag is kastrup's own, so `s` files every tagged
 message at once, as in kastrup.
 
