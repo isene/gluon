@@ -94,6 +94,12 @@ jobs:
           repository: isene/tock
           path: tock
 
+      - name: Checkout orbit
+        uses: actions/checkout@v7
+        with:
+          repository: isene/orbit
+          path: orbit
+
       - name: Checkout deck
         uses: actions/checkout@v7
         with:
