@@ -647,13 +647,23 @@ struct Frame {
     dirty: bool,
     /// The title and the focus the frame was drawn with.
     drawn: Option<(String, bool)>,
-    /// Rows tagged for Claude (t), by their keys, on a dark grey.
+    /// Rows tagged for Claude (t), by their keys, drawn as kastrup draws
+    /// a tagged message: a dot in front, the row in the tag colour.
     tags: HashSet<(i64, i64)>,
+    tag_colour: u8,
     /// Drawn in the bridge look: the title and keys alone, the bars are
     /// the picture's.
     bridge: bool,
     /// The keys left out of the bottom edge (Ctrl+Shift+K).
     quiet: bool,
+}
+
+/// A tagged row with kastrup's dot in its first cell, when that is empty.
+fn tag_dot(row: String, tagged: bool) -> String {
+    match row.strip_prefix(' ') {
+        Some(rest) if tagged => format!("•{rest}"),
+        _ => row,
+    }
 }
 
 impl Frame {
@@ -669,6 +679,7 @@ impl Frame {
             dirty: true,
             drawn: None,
             tags: HashSet::new(),
+            tag_colour: 14,
             bridge: false,
             quiet: false,
         }
@@ -782,15 +793,12 @@ impl Frame {
         let text: Vec<String> = self.rows.iter().enumerate().skip(self.top).take(self.pane.h as usize)
             .map(|(i, (k, t))| {
                 let tagged = k.is_some_and(|k| self.tags.contains(&k));
-                let p = crust::strip_ansi(t);
+                let p = tag_dot(crust::strip_ansi(t), tagged);
                 let pad = " ".repeat(w.saturating_sub(crust::display_width(&p)));
                 if focused && i == self.sel && k.is_some() {
-                    style::styled(&(p + &pad), Some(255), Some(if tagged { 240 } else { 238 }), "")
+                    style::styled(&(p + &pad), Some(if tagged { self.tag_colour } else { 255 }), Some(238), "")
                 } else if tagged {
-                    // The grey again after each reset inside the row.
-                    let bg = style::set_bg(236);
-                    let again = format!("{}{bg}", style::RESET);
-                    format!("{bg}{}{pad}{}", t.replace(style::RESET, &again), style::RESET)
+                    style::fg(&p, self.tag_colour)
                 } else {
                     t.clone()
                 }
@@ -1852,6 +1860,8 @@ impl Home {
         let r = list.iter().filter(|u| self.marked_read.contains(&u.id) && !self.marked_del.contains(&u.id)).count();
         let d = list.iter().filter(|u| self.marked_del.contains(&u.id)).count();
         let marks: String = [("R", r), ("D", d)].iter().filter(|m| m.1 > 0).map(|(k, n)| format!(" · {k} {n}")).collect();
+        let colour = mail.tag_colour();
+        self.boxes.iter_mut().for_each(|b| b.tag_colour = colour);
         let b = &mut self.boxes[BOX_MAIL];
         b.tags = list.iter().filter(|u| mail.is_tagged(u.id)).map(|u| (u.id, 0)).collect();
         let order = if self.oldest { " · oldest first" } else { "" };
@@ -2590,6 +2600,13 @@ mod tests {
         f.tag();
         assert_eq!(f.take_tags(), vec![(1, line_key("a")), (3, line_key("c"))]);
         assert!(f.take_tags().is_empty());
+    }
+
+    #[test]
+    fn a_tagged_row_gets_the_dot_in_an_empty_first_cell() {
+        assert_eq!(tag_dot(" 1  09:00 Meet".into(), true), "•1  09:00 Meet");
+        assert_eq!(tag_dot(" 1  09:00 Meet".into(), false), " 1  09:00 Meet");
+        assert_eq!(tag_dot("x task".into(), true), "x task");
     }
 
     #[test]
