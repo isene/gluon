@@ -648,7 +648,8 @@ struct Frame {
     /// The title and the focus the frame was drawn with.
     drawn: Option<(String, bool)>,
     /// Rows tagged for Claude (t), by their keys, drawn as kastrup draws
-    /// a tagged message: a dot in front, the row in the tag colour.
+    /// a tagged message: a dot in front, the row in the tag colour on a
+    /// dark grey.
     tags: HashSet<(i64, i64)>,
     tag_colour: u8,
     /// Drawn in the bridge look: the title and keys alone, the bars are
@@ -796,9 +797,9 @@ impl Frame {
                 let p = tag_dot(crust::strip_ansi(t), tagged);
                 let pad = " ".repeat(w.saturating_sub(crust::display_width(&p)));
                 if focused && i == self.sel && k.is_some() {
-                    style::styled(&(p + &pad), Some(if tagged { self.tag_colour } else { 255 }), Some(238), "")
+                    style::styled(&(p + &pad), Some(if tagged { self.tag_colour } else { 255 }), Some(if tagged { 240 } else { 238 }), "")
                 } else if tagged {
-                    style::fg(&p, self.tag_colour)
+                    style::fb(&(p + &pad), self.tag_colour, kastrup::app::TAG_BG)
                 } else {
                     t.clone()
                 }

@@ -76,7 +76,7 @@ again, and gluon remembers the choice in `~/.gluon/nokeys`:
 
 t tags the picked row in any box, and t again takes the tag off. A
 tagged row looks as it does in kastrup: a dot in front and the row in
-the tag colour of kastrup's theme.
+the tag colour of kastrup's theme, on a dark grey.
 
 When the keys go from a box to Claude (Esc or Tab), Claude gets
 every tagged row of all three boxes with your next prompt, or else the row
