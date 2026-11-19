@@ -89,11 +89,18 @@ This pane sits beside the user's work: answer short.
 /// The tab names for the first line, the one in view marked.
 fn tab_line(active: usize) -> String {
     let mut line = String::from(" ");
+    let warn = !SYNC.lock().map(|w| w.is_empty()).unwrap_or(true);
     for (i, name) in TABS.iter().enumerate() {
+        // A calendar that cannot sync turns the Calendar name red.
+        let (name, colour) = match (i == CALENDAR && warn, i == active) {
+            (true, _) => (format!("{name} \u{26a0}"), 196),
+            (false, true) => (name.to_string(), 156),
+            (false, false) => (name.to_string(), 245),
+        };
         if i == active {
-            line.push_str(&style::bold(&style::fg(name, 156)));
+            line.push_str(&style::bold(&style::fg(&name, colour)));
         } else {
-            line.push_str(&style::fg(name, 245));
+            line.push_str(&style::fg(&name, colour));
         }
         line.push_str("  ");
     }
@@ -103,6 +110,30 @@ fn tab_line(active: usize) -> String {
 
 /// The timed sweeps' mark for the top line, empty while they are off.
 static BADGE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// tock's line for a calendar that could not sync, empty while all sync.
+static SYNC: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Keep tock's sync warning for the tab names and Home's bar. True when
+/// it changed, so the tab in view is drawn again.
+fn set_sync(warn: &str) -> bool {
+    let Ok(mut w) = SYNC.lock() else { return false };
+    if *w == warn {
+        return false;
+    }
+    *w = warn.to_string();
+    true
+}
+
+/// Home's bar when it has no note of its own: the calendar that cannot
+/// sync, in red, or nothing.
+fn sync_note() -> String {
+    let warn = SYNC.lock().map(|w| w.clone()).unwrap_or_default();
+    if warn.is_empty() {
+        return String::new();
+    }
+    style::fg(&format!(" \u{26a0} Calendar: {warn}"), 196)
+}
 
 /// A tab out of view still does its idle work (new mail, scheduled
 /// sends, alarms, Claude's answer), with what it draws thrown away so it
@@ -1699,7 +1730,8 @@ impl Home {
             self.bar_note = self.note.clone();
             let tabs = tab_line(HOME);
             let fit = cols.saturating_sub(crust::display_width(&tabs) + crust::display_width(&right) + 1);
-            let left = tabs + &style::fg(&crust::truncate_ansi(&self.note, fit), 156);
+            let note = if self.note.is_empty() { sync_note() } else { style::fg(&self.note, 156) };
+            let left = tabs + &crust::truncate_ansi(&note, fit);
             let room = cols.saturating_sub(crust::display_width(&left) + crust::display_width(&right));
             drew |= show(&mut self.bar, format!("{left}{}{right}", " ".repeat(room)), force);
         }
@@ -1751,7 +1783,8 @@ impl Home {
         let rw = crust::display_width(&right) as u16;
         let rc = cols.saturating_sub(3 + rw);
         let nc = bridge::SIDE + 2;
-        let note = self.note.trim();
+        let warn = sync_note();
+        let note = if self.note.trim().is_empty() { warn.as_str() } else { self.note.trim() };
         let note = if note.is_empty() {
             String::new()
         } else {
@@ -2351,6 +2384,18 @@ fn main() {
                 None => {
                     if tab == MAIL { mail.after_wait(None) } else { unseen.run(|| mail.after_wait(None)) }
                     if tab == CALENDAR { cal.after_wait(None) } else { unseen.run(|| cal.after_wait(None)) }
+                    // A calendar that stopped syncing, or synced again:
+                    // the tab names and Home's bar say so on every tab.
+                    if set_sync(cal.sync_warning().unwrap_or("")) {
+                        mail.set_tab_line(Some(tab_line(MAIL)));
+                        cal.set_tab_line(Some(tab_line(CALENDAR)));
+                        match tab {
+                            MAIL => mail.repaint(),
+                            CALENDAR => cal.repaint(),
+                            TASKS => tasks.repaint(),
+                            _ => home.repaint(&mail, &cal, &mut claude),
+                        }
+                    }
                     if let Some(c) = claude.app() {
                         if tab == HOME { c.after_wait(None) } else { unseen.run(|| c.after_wait(None)) }
                     }
@@ -2502,6 +2547,18 @@ fn bar_text(note: &str, fit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_calendar_that_cannot_sync_shows_on_the_calendar_tab_and_at_home() {
+        let warn = "Outlook Work: sign-in expired, press O to sign in again";
+        assert!(set_sync(warn));
+        assert!(!set_sync(warn), "the same warning draws nothing again");
+        assert!(crust::strip_ansi(&tab_line(HOME)).contains("Calendar \u{26a0}"));
+        assert_eq!(crust::strip_ansi(&sync_note()), format!(" \u{26a0} Calendar: {warn}"));
+        assert!(set_sync(""), "synced again");
+        assert!(!crust::strip_ansi(&tab_line(HOME)).contains('\u{26a0}'));
+        assert_eq!(sync_note(), "");
+    }
 
     #[test]
     fn drafts_show_only_when_there_are_some() {
