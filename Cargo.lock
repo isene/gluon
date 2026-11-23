@@ -351,7 +351,7 @@ dependencies = [
 
 [[package]]
 name = "fe2o3-highlight"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "fe2o3-crust",
  "regex",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "gluon"
-version = "0.20.56"
+version = "0.20.57"
 dependencies = [
  "deck",
  "fe2o3-crust",
