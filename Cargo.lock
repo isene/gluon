@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "deck"
-version = "0.1.78"
+version = "0.1.79"
 dependencies = [
  "fe2o3-crust",
  "fe2o3-glow",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "gluon"
-version = "0.20.57"
+version = "0.20.58"
 dependencies = [
  "deck",
  "fe2o3-crust",
@@ -742,7 +742,7 @@ dependencies = [
 
 [[package]]
 name = "kastrup"
-version = "0.3.126"
+version = "0.3.127"
 dependencies = [
  "base64",
  "fe2o3-crust",
@@ -1130,7 +1130,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scribe"
-version = "0.1.100"
+version = "0.1.101"
 dependencies = [
  "aes",
  "base64",
