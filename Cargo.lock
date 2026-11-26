@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "deck"
-version = "0.1.80"
+version = "0.1.81"
 dependencies = [
  "fe2o3-crust",
  "fe2o3-glow",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "gluon"
-version = "0.20.60"
+version = "0.20.61"
 dependencies = [
  "deck",
  "fe2o3-crust",
